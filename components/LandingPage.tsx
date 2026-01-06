@@ -1,0 +1,329 @@
+
+import React, { useState, useEffect, useRef } from 'react';
+
+interface Props {
+  onStart: () => void;
+}
+
+const problems = [
+  "Is the hidden onion in your dal harming your pet?",
+  "Walking your Indie in the 42°C Delhi heat?",
+  "Scattered medical records across WhatsApp chats?",
+  "Is home-cooked food enough for your breed's joints?",
+  "Struggling with RWA rules for your pet in Mumbai?"
+];
+
+const animalTypes = [
+  { icon: "🐕", name: "Indie / Pariah", feature: "NutriScan Expert" },
+  { icon: "🐈", name: "Persian Cat", feature: "Coat Health AI" },
+  { icon: "🦮", name: "Golden Retriever", feature: "Joint Support" },
+  { icon: "🐩", name: "Poodle", feature: "Allergy Audit" },
+  { icon: "🐕‍🦺", name: "German Shepherd", feature: "Guard Health" },
+  { icon: "🐱", name: "Indie Cat", feature: "Toxicity Shield" },
+  { icon: "🐰", name: "Rabbit", feature: "Fiber Analytics" },
+  { icon: "🦜", name: "Parrot", feature: "Avian Safety" },
+];
+
+const LandingPage: React.FC<Props> = ({ onStart }) => {
+  const [problemIndex, setProblemIndex] = useState(0);
+  const [formSubmitted, setFormSubmitted] = useState(false);
+  const [email, setEmail] = useState('');
+  const [premiumInterest, setPremiumInterest] = useState('');
+  const [isVisible, setIsVisible] = useState(false);
+
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setProblemIndex(prev => (prev + 1) % problems.length);
+    }, 4000);
+    setIsVisible(true);
+    return () => clearInterval(interval);
+  }, []);
+
+  const handleCtaSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!email) return;
+    const waitlist = JSON.parse(localStorage.getItem('pawveda_waitlist') || '[]');
+    waitlist.push({ email, premiumInterest, timestamp: new Date().toISOString() });
+    localStorage.setItem('pawveda_waitlist', JSON.stringify(waitlist));
+    setFormSubmitted(true);
+  };
+
+  return (
+    <div className="relative overflow-hidden bg-[#FAF8F6] scroll-smooth">
+      {/* Navigation */}
+      <nav className={`flex items-center justify-between px-6 py-8 max-w-7xl mx-auto relative z-50 transition-all duration-1000 transform ${isVisible ? 'translate-y-0 opacity-100' : '-translate-y-10 opacity-0'}`}>
+        <div className="flex items-center gap-2">
+          <div className="w-10 h-10 bg-brand-900 rounded-xl flex items-center justify-center text-white font-display font-bold text-xl shadow-lg hover:rotate-12 transition-transform cursor-pointer">P</div>
+          <span className="text-2xl font-display font-bold text-brand-900 tracking-tighter">PawVeda</span>
+        </div>
+        <div className="flex items-center gap-8">
+          <button onClick={onStart} className="hidden md:block text-sm font-bold text-brand-800/60 hover:text-brand-900 transition-colors uppercase tracking-widest">Login</button>
+          <button onClick={onStart} className="bg-brand-900 text-white px-8 py-3.5 rounded-full font-bold shadow-xl hover:bg-brand-500 transition-all active:scale-95">
+            Get Started
+          </button>
+        </div>
+      </nav>
+
+      {/* Hero Section */}
+      <section className="pt-16 pb-32 px-6">
+        <div className="max-w-7xl mx-auto grid lg:grid-cols-2 gap-20 items-center">
+          <div className={`transition-all duration-1000 delay-300 transform ${isVisible ? 'translate-y-0 opacity-100' : 'translate-y-20 opacity-0'}`}>
+            <span className="inline-block px-4 py-1.5 rounded-full bg-brand-100 text-brand-700 text-[10px] font-black uppercase tracking-[0.2em] mb-8">
+              The Intelligence Layer for Indian Pet Parents
+            </span>
+            <h1 className="text-6xl md:text-8xl font-display font-extrabold text-neutral-dark leading-[0.9] mb-10 tracking-tighter">
+              Expert Care. <br/><span className="text-brand-500 italic font-serif">Redefined.</span>
+            </h1>
+            
+            <div className="h-20 mb-12 border-l-4 border-brand-500 pl-8 flex items-center overflow-hidden">
+              <p className="text-xl md:text-2xl text-brand-800/80 font-medium italic animate-reveal">
+                {problems[problemIndex]}
+              </p>
+            </div>
+
+            <div className="flex flex-col sm:flex-row gap-8 items-center">
+              <button onClick={onStart} className="w-full sm:w-auto bg-brand-500 text-white px-14 py-6 rounded-[2.5rem] text-xl font-bold shadow-2xl shadow-brand-500/20 hover:bg-brand-600 transition-all active:scale-95 group">
+                Join the Pack <span className="inline-block group-hover:translate-x-2 transition-transform ml-2">→</span>
+              </button>
+              <div className="flex items-center gap-4">
+                <div className="flex -space-x-3">
+                  {[1, 2, 3, 4].map(i => (
+                    <img key={i} src={`https://i.pravatar.cc/100?u=${i + 20}`} className="w-12 h-12 rounded-full border-4 border-[#FAF8F6] shadow-md" alt="User" />
+                  ))}
+                </div>
+                <div className="text-left">
+                  <p className="text-xs font-black text-brand-900 uppercase">Trusted by</p>
+                  <p className="text-[10px] text-brand-800/50 uppercase">5,000+ Desi Parents</p>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div className={`relative transition-all duration-1000 delay-500 transform ${isVisible ? 'scale-100 opacity-100' : 'scale-90 opacity-0'}`}>
+            <div className="absolute inset-0 bg-brand-200/20 rounded-full blur-3xl animate-pulse -z-10"></div>
+            <img 
+              src="https://images.unsplash.com/photo-1598133894008-61f7fdb8cc3a?auto=format&fit=crop&q=80&w=1200" 
+              className="rounded-[5rem] shadow-[0_40px_100px_-20px_rgba(82,49,23,0.3)] w-full object-cover aspect-[4/5] border-8 border-white hover:scale-[1.02] transition-transform duration-700"
+              alt="Happy Indian Dog"
+            />
+            {/* Floating UI Elements */}
+            <div className="absolute -bottom-10 -left-10 bg-white/90 backdrop-blur-xl p-8 rounded-[3rem] shadow-2xl max-w-[280px] border border-white/20 animate-bounce-slow">
+              <div className="flex items-center gap-4 mb-4">
+                <div className="w-12 h-12 bg-brand-500 rounded-2xl flex items-center justify-center text-2xl text-white shadow-lg shadow-brand-500/30">🥗</div>
+                <div>
+                  <div className="text-[10px] font-black text-brand-500 uppercase tracking-widest">NutriScan Active</div>
+                  <div className="text-[9px] text-brand-300 uppercase">Grounded Check</div>
+                </div>
+              </div>
+              <p className="text-xs font-bold text-neutral-dark leading-relaxed italic">"Dal identified. Safe for Bruno. Avoid adding table salt or fried tadka."</p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* Value Proposition */}
+      <section className="py-32 bg-white px-6">
+        <div className="max-w-7xl mx-auto">
+          <div className="grid md:grid-cols-3 gap-16">
+            {[
+              { icon: "🥗", title: "Meal Audits", desc: "Scan home-cooked meals for hidden toxins and nutritional balance specialized for Indian breeds.", delay: 'delay-100' },
+              { icon: "🌡️", title: "Smart Activity", desc: "Weather-synced walk suggestions for your city to prevent heatstroke and paw burns.", delay: 'delay-200' },
+              { icon: "📁", title: "Health Vault", desc: "Digital repository for prescriptions, vaccines, and growth charts. Secure and centralized.", delay: 'delay-300' }
+            ].map((item, i) => (
+              <div key={i} className={`group p-12 rounded-[4rem] bg-brand-50 hover:bg-brand-900 transition-all duration-700 transform hover:-translate-y-4`}>
+                <div className="text-6xl mb-10 group-hover:scale-110 transition-transform duration-500">{item.icon}</div>
+                <h3 className="text-3xl font-display font-bold mb-6 text-brand-900 group-hover:text-white transition-colors">{item.title}</h3>
+                <p className="text-brand-800/60 group-hover:text-white/70 leading-relaxed font-light text-lg transition-colors">{item.desc}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      {/* Animal Types Carousel */}
+      <section className="py-32 bg-neutral-dark overflow-hidden relative">
+        <div className="max-w-7xl mx-auto px-6 mb-20 text-center">
+          <span className="text-brand-500 font-black text-[10px] uppercase tracking-[0.3em] mb-4 block">Inclusive Intelligence</span>
+          <h2 className="text-4xl md:text-5xl font-display font-bold text-white tracking-tight">Care for Every Companion</h2>
+        </div>
+
+        {/* Endless Carousel */}
+        <div className="flex gap-10 animate-scroll whitespace-nowrap px-10 py-4">
+          {[...animalTypes, ...animalTypes, ...animalTypes].map((animal, i) => (
+            <div key={i} className="inline-flex items-center gap-8 bg-white/5 backdrop-blur-2xl border border-white/10 p-8 rounded-[3.5rem] min-w-[320px] hover:bg-white/10 transition-all group cursor-pointer hover:border-brand-500/50">
+              <div className="text-6xl group-hover:scale-125 transition-transform duration-500">{animal.icon}</div>
+              <div className="whitespace-normal">
+                <p className="text-white font-display font-bold text-xl mb-1">{animal.name}</p>
+                <p className="text-brand-500 text-[10px] font-black uppercase tracking-[0.2em]">{animal.feature}</p>
+              </div>
+            </div>
+          ))}
+        </div>
+
+        <div className="absolute top-0 left-0 w-40 h-full bg-gradient-to-r from-neutral-dark to-transparent z-10"></div>
+        <div className="absolute top-0 right-0 w-40 h-full bg-gradient-to-l from-neutral-dark to-transparent z-10"></div>
+      </section>
+
+      {/* Pricing Section */}
+      <section className="py-40 px-6 max-w-7xl mx-auto">
+        <div className="text-center mb-24">
+          <h2 className="text-5xl md:text-7xl font-display font-black mb-6 tracking-tighter">Premium Care. <span className="text-brand-500">No Compromise.</span></h2>
+          <p className="text-brand-800/40 text-xl font-medium">Simple, transparent pricing for Indian households.</p>
+        </div>
+        
+        <div className="grid md:grid-cols-2 gap-12 max-w-5xl mx-auto">
+          <div className="p-12 rounded-[4.5rem] border-2 border-brand-100 bg-white flex flex-col items-center hover:shadow-2xl transition-all duration-700">
+            <h3 className="text-2xl font-bold text-brand-900 mb-2 uppercase tracking-widest">Monthly Pack</h3>
+            <div className="text-6xl font-display font-black text-brand-900 mb-10">₹299<span className="text-lg font-normal opacity-30 tracking-normal">/mo</span></div>
+            <ul className="text-lg text-brand-800/60 space-y-5 mb-14 text-left w-full pl-6">
+              <li className="flex items-center gap-4"><span className="w-6 h-6 bg-brand-100 text-brand-500 rounded-full flex items-center justify-center text-xs font-bold">✓</span> Unlimited Meal Audits</li>
+              <li className="flex items-center gap-4"><span className="w-6 h-6 bg-brand-100 text-brand-500 rounded-full flex items-center justify-center text-xs font-bold">✓</span> Smart Heat Alerts</li>
+              <li className="flex items-center gap-4"><span className="w-6 h-6 bg-brand-100 text-brand-500 rounded-full flex items-center justify-center text-xs font-bold">✓</span> Basic Health Vault</li>
+            </ul>
+            <button onClick={onStart} className="w-full py-6 rounded-[2rem] border-2 border-brand-500 text-brand-500 font-bold text-xl hover:bg-brand-500 hover:text-white transition-all duration-500 active:scale-95">Select Plan</button>
+          </div>
+          
+          <div className="p-12 rounded-[4.5rem] bg-brand-900 text-white flex flex-col items-center shadow-[0_40px_100px_-15px_rgba(82,49,23,0.4)] relative overflow-hidden group">
+            <div className="absolute top-8 right-8 bg-brand-500 px-5 py-2 rounded-full text-[10px] font-black uppercase tracking-[0.2em] z-10">Best Value</div>
+            <h3 className="text-2xl font-bold mb-2 uppercase tracking-widest">Annual Pack</h3>
+            <div className="text-6xl font-display font-black mb-10">₹899<span className="text-lg font-normal opacity-30 tracking-normal">/yr</span></div>
+            <ul className="text-lg text-white/60 space-y-5 mb-14 text-left w-full pl-6">
+              <li className="flex items-center gap-4"><span className="w-6 h-6 bg-brand-500/20 text-brand-500 rounded-full flex items-center justify-center text-xs font-bold">✓</span> Everything in Monthly</li>
+              <li className="flex items-center gap-4"><span className="w-6 h-6 bg-brand-500/20 text-brand-500 rounded-full flex items-center justify-center text-xs font-bold">✓</span> 24/7 AI First-Aid Access</li>
+              <li className="flex items-center gap-4"><span className="w-6 h-6 bg-brand-500/20 text-brand-500 rounded-full flex items-center justify-center text-xs font-bold">✓</span> Cinematic Pet Studio</li>
+              <li className="flex items-center gap-4"><span className="w-6 h-6 bg-brand-500/20 text-brand-500 rounded-full flex items-center justify-center text-xs font-bold">✓</span> Personalized Health Maps</li>
+            </ul>
+            <button onClick={onStart} className="w-full py-6 rounded-[2rem] bg-brand-500 text-white font-bold text-xl hover:bg-brand-600 shadow-xl shadow-brand-500/30 transition-all duration-500 active:scale-95">Go Pro Annual</button>
+            <div className="absolute -bottom-16 -right-16 w-48 h-48 bg-white/5 rounded-full blur-3xl group-hover:scale-150 transition-transform duration-1000"></div>
+          </div>
+        </div>
+      </section>
+
+      {/* Bottom CTA Interest Form */}
+      <section className="py-40 px-6 bg-brand-50">
+        <div className="max-w-6xl mx-auto bg-white rounded-[5rem] shadow-2xl overflow-hidden grid md:grid-cols-2 relative group border border-white">
+          <div className="p-16 md:p-24 flex flex-col justify-center">
+            <span className="text-brand-500 font-black text-[10px] uppercase tracking-[0.3em] mb-6 block">Stay Informed</span>
+            <h2 className="text-5xl font-display font-black text-brand-900 mb-8 leading-[1.1] tracking-tight">Help us build the <br/><span className="text-brand-500">Perfect Service.</span></h2>
+            <p className="text-brand-800/60 text-xl mb-12 leading-relaxed">
+              Tell us what features you want most. Join our waitlist for a free "Desi Food Toxicity Guide" and early beta features.
+            </p>
+            
+            {formSubmitted ? (
+              <div className="animate-in fade-in zoom-in-95 duration-700 bg-brand-50/50 p-12 rounded-[4rem] text-center border-4 border-dashed border-brand-100">
+                <div className="text-6xl mb-6 scale-animate">🐾</div>
+                <h3 className="text-3xl font-display font-black text-brand-900 mb-4">You're on the list!</h3>
+                <p className="text-lg text-brand-800/60 max-w-xs mx-auto">We'll reach out to your inbox shortly with our exclusive guides.</p>
+              </div>
+            ) : (
+              <form onSubmit={handleCtaSubmit} className="space-y-6">
+                <div className="relative">
+                  <input 
+                    required
+                    type="email" 
+                    placeholder="Email Address" 
+                    className="w-full bg-[#FAF8F6] border-2 border-transparent focus:border-brand-500/30 rounded-[2.5rem] px-10 py-6 outline-none transition-all text-lg font-medium shadow-inner"
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                  />
+                </div>
+                <div className="relative">
+                  <select 
+                    required
+                    className="w-full bg-[#FAF8F6] border-2 border-transparent focus:border-brand-500/30 rounded-[2.5rem] px-10 py-6 outline-none transition-all text-lg font-medium shadow-inner appearance-none cursor-pointer"
+                    value={premiumInterest}
+                    onChange={(e) => setPremiumInterest(e.target.value)}
+                  >
+                    <option value="" disabled>What feature are you excited for?</option>
+                    <option value="nutrition">AI-Powered NutriScan (Dal/Curd Audits)</option>
+                    <option value="medical">Health Vault (Prescription Analysis)</option>
+                    <option value="climate">Climate Shield (Heat Safety Alerts)</option>
+                    <option value="studio">Studio Pro (Cinematic Memories)</option>
+                    <option value="firstaid">24/7 AI First-Aid Companion</option>
+                  </select>
+                  <div className="absolute right-8 top-1/2 -translate-y-1/2 pointer-events-none opacity-40">▼</div>
+                </div>
+                <button 
+                  type="submit"
+                  className="w-full bg-brand-900 text-white py-6 rounded-[2.5rem] font-black text-xl shadow-2xl hover:bg-brand-500 transition-all active:scale-95 transform hover:-translate-y-1"
+                >
+                  Join the Beta Waitlist
+                </button>
+              </form>
+            )}
+          </div>
+          
+          <div className="relative hidden md:block overflow-hidden">
+            <img 
+              src="https://images.unsplash.com/photo-1541364983171-a8ba01e95cfc?auto=format&fit=crop&q=80&w=1200" 
+              className="absolute inset-0 w-full h-full object-cover group-hover:scale-110 transition-transform duration-[5s]" 
+              alt="Interest Form Background"
+            />
+            <div className="absolute inset-0 bg-brand-900/40 backdrop-blur-[2px] flex flex-col items-center justify-center p-20 text-center">
+              <div className="bg-white/10 backdrop-blur-xl border border-white/20 p-12 rounded-[4rem] text-white">
+                <p className="text-6xl mb-8">💡</p>
+                <p className="text-3xl font-display font-bold leading-tight mb-6">"Every pet is a 1 of 1. Their care should be too."</p>
+                <div className="h-1 w-12 bg-brand-500 mx-auto mb-6"></div>
+                <p className="text-brand-100 font-black uppercase text-[10px] tracking-[0.3em]">— PawVeda Intelligence Layer</p>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <footer className="py-20 border-t border-brand-100 text-center">
+        <div className="flex flex-col items-center gap-12">
+          <div className="flex items-center gap-2">
+            <div className="w-8 h-8 bg-brand-900 rounded-lg flex items-center justify-center text-white font-display font-bold text-sm">P</div>
+            <span className="text-xl font-display font-bold text-brand-900 tracking-tighter">PawVeda</span>
+          </div>
+          <div className="flex gap-12 text-sm font-bold text-brand-800/40 uppercase tracking-widest">
+            <a href="#" className="hover:text-brand-500 transition-colors">Privacy</a>
+            <a href="#" className="hover:text-brand-500 transition-colors">Terms</a>
+            <a href="#" className="hover:text-brand-500 transition-colors">Safety</a>
+            <a href="#" className="hover:text-brand-500 transition-colors">Support</a>
+          </div>
+          <p className="text-brand-800/20 text-xs font-medium">
+            © 2024 PawVeda Intelligence. Built for the modern Indian pet parent.
+          </p>
+        </div>
+      </footer>
+
+      <style>{`
+        @keyframes scroll {
+          0% { transform: translateX(0); }
+          100% { transform: translateX(-50%); }
+        }
+        .animate-scroll {
+          animation: scroll 40s linear infinite;
+        }
+        .animate-scroll:hover {
+          animation-play-state: paused;
+        }
+        @keyframes reveal {
+          0% { opacity: 0; transform: translateY(20px); }
+          100% { opacity: 1; transform: translateY(0); }
+        }
+        .animate-reveal {
+          animation: reveal 0.8s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+        }
+        @keyframes scale-pulse {
+          0%, 100% { transform: scale(1); }
+          50% { transform: scale(1.1); }
+        }
+        .scale-animate {
+          animation: scale-pulse 3s infinite ease-in-out;
+        }
+        .animate-bounce-slow {
+          animation: bounce-slow 4s infinite ease-in-out;
+        }
+        @keyframes bounce-slow {
+          0%, 100% { transform: translateY(0); }
+          50% { transform: translateY(-20px); }
+        }
+      `}</style>
+    </div>
+  );
+};
+
+export default LandingPage;
