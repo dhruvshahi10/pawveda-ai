@@ -30,17 +30,27 @@ const steps = [
   { 
     title: "Metabolic Vitals", 
     subtitle: "Precision nutrition starts with accurate weight and activity metrics.",
-    image: "https://images.unsplash.com/photo-1534361960057-19889db9621e?auto=format&fit=crop&q=80&w=1000"
+    image: "https://images.unsplash.com/photo-1517849845537-4d257902454a?auto=format&fit=crop&q=80&w=1000"
+  },
+  { 
+    title: "Health Snapshot", 
+    subtitle: "These signals unlock personalized reminders and preventive care insights.",
+    image: "https://images.unsplash.com/photo-1507146426996-ef05306b995a?auto=format&fit=crop&q=80&w=1000"
   },
   { 
     title: "The Desi Kitchen", 
     subtitle: "What's on the menu? We specialize in auditing home-cooked meals for toxicity.",
-    image: "https://images.unsplash.com/photo-1583337130417-3346a1be7dee?auto=format&fit=crop&q=80&w=1000"
+    image: "https://images.unsplash.com/photo-1548199973-03cce0bbc87b?auto=format&fit=crop&q=80&w=1000"
+  },
+  { 
+    title: "Daily Routine", 
+    subtitle: "Your routines help us craft a smarter daily brief and habit streaks.",
+    image: "https://images.unsplash.com/photo-1518717758536-85ae29035b6d?auto=format&fit=crop&q=80&w=1000"
   },
   { 
     title: "Priority Focus", 
     subtitle: "What is your main goal with PawVeda Intelligence?",
-    image: "https://images.unsplash.com/photo-1548191265-cc70d3d45ba1?auto=format&fit=crop&q=80&w=1000"
+    image: "https://images.unsplash.com/photo-1450778869180-41d0601e046e?auto=format&fit=crop&q=80&w=1000"
   },
   { 
     title: "Calibrating Nodes", 
@@ -51,6 +61,7 @@ const steps = [
 
 const breeds = ['Indie / Pariah', 'Golden Retriever', 'Labrador', 'German Shepherd', 'Beagle', 'Shih Tzu', 'Persian Cat', 'Indie Cat'];
 const priorities = ['Toxicity Checks', 'Climate Safety', 'Health Vault', 'AI Studio', 'RWA/Admin Peace'];
+const healthGoals = ['Weight Management', 'Skin/Coat Health', 'Anxiety & Calm', 'Joint Support', 'Training Discipline'];
 
 // Simulated real-time city registry
 const INDIAN_CITIES = [
@@ -70,13 +81,25 @@ const Onboarding: React.FC<Props> = ({ onComplete }) => {
     name: '',
     breed: 'Indie / Pariah',
     age: 'Adult',
+    ageMonths: '',
     weight: '15',
     dietType: 'Home Cooked',
     gender: 'Male',
     activityLevel: 'Moderate',
     city: '',
     allergies: [],
-    interests: []
+    interests: [],
+    spayNeuterStatus: 'Unknown',
+    vaccinationStatus: 'Not sure',
+    lastVaccineDate: '',
+    activityBaseline: '30-60 min',
+    housingType: 'Apartment',
+    walkSurface: 'Mixed',
+    parkAccess: 'Yes',
+    feedingSchedule: 'Twice',
+    foodBrand: '',
+    goals: [],
+    vetAccess: 'Regular Vet'
   });
 
   const next = () => {
@@ -117,7 +140,7 @@ const Onboarding: React.FC<Props> = ({ onComplete }) => {
 
   return (
     <div className="min-h-screen bg-[#FAF8F6] flex items-center justify-center p-4 md:p-10">
-      <div className="w-full max-w-6xl h-[90vh] md:h-[80vh] bg-white rounded-[4rem] shadow-[0_40px_100px_-20px_rgba(82,49,23,0.15)] overflow-hidden flex flex-col md:flex-row relative">
+      <div className="w-full max-w-6xl bg-white rounded-[3rem] md:rounded-[4rem] shadow-[0_40px_100px_-20px_rgba(82,49,23,0.15)] overflow-hidden flex flex-col md:flex-row relative">
         
         {/* Progress Bar */}
         <div className="absolute top-0 left-0 right-0 h-1.5 bg-brand-50 z-50">
@@ -125,7 +148,7 @@ const Onboarding: React.FC<Props> = ({ onComplete }) => {
         </div>
 
         {/* Left Side: Cinematic Visuals */}
-        <div className="w-full md:w-1/2 relative overflow-hidden group hidden md:block">
+        <div className="w-full md:w-5/12 relative overflow-hidden group hidden md:block">
           {steps.map((s, idx) => (
             <img 
               key={idx}
@@ -148,13 +171,13 @@ const Onboarding: React.FC<Props> = ({ onComplete }) => {
         </div>
 
         {/* Right Side: Interactive Forms */}
-        <div className="w-full md:w-1/2 p-8 md:p-20 flex flex-col justify-center bg-white relative overflow-y-auto">
+        <div className="w-full md:w-7/12 p-6 sm:p-10 md:p-16 pt-16 md:pt-12 flex flex-col justify-start bg-white relative overflow-y-auto max-h-[85vh]">
           
           {/* Back Button Navigation */}
           {step > 0 && step < steps.length - 1 && (
             <button 
               onClick={back}
-              className="absolute top-12 left-12 flex items-center gap-2 text-brand-300 font-black text-[10px] uppercase tracking-widest hover:text-brand-900 transition-all group z-[60]"
+              className="absolute top-5 left-6 md:top-9 md:left-10 flex items-center gap-2 text-brand-300 font-black text-[10px] uppercase tracking-widest hover:text-brand-900 transition-all group z-[60]"
             >
               <span className="group-hover:-translate-x-1 transition-transform">←</span> Go Back
             </button>
@@ -181,13 +204,13 @@ const Onboarding: React.FC<Props> = ({ onComplete }) => {
           {step === 1 && (
             <div className="animate-reveal space-y-10">
               <div className="space-y-4">
-                <label className="text-[10px] font-black text-brand-500 uppercase tracking-[0.3em] ml-2">Real-time City Sync</label>
+                <label className="text-[10px] font-black text-brand-500 uppercase tracking-[0.3em] ml-2 block">Real-time City Sync</label>
                 <div className="relative">
                   <input 
                     autoFocus
                     type="text" 
                     placeholder="Search city (e.g., Bangalore)"
-                    className="w-full bg-brand-50 border-none rounded-[2.5rem] px-10 py-7 outline-none focus:ring-4 focus:ring-brand-500/10 transition-all text-2xl font-bold text-brand-900"
+                    className="w-full bg-brand-50 border-none rounded-[2.5rem] px-8 py-6 outline-none focus:ring-4 focus:ring-brand-500/10 transition-all text-xl md:text-2xl font-bold text-brand-900"
                     value={citySearch || formData.city}
                     onChange={(e) => {
                       setCitySearch(e.target.value);
@@ -197,7 +220,7 @@ const Onboarding: React.FC<Props> = ({ onComplete }) => {
                   {isCityLoading && <div className="absolute right-8 top-1/2 -translate-y-1/2 w-6 h-6 border-2 border-brand-500 border-t-transparent rounded-full animate-spin" />}
                   
                   {citySuggestions.length > 0 && (
-                    <div className="absolute top-full left-0 right-0 mt-4 bg-white rounded-[2.5rem] shadow-2xl border border-brand-50 overflow-hidden z-[70] animate-reveal">
+                    <div className="absolute top-full left-0 right-0 mt-3 bg-white rounded-[2rem] shadow-2xl border border-brand-50 overflow-hidden z-[70] animate-reveal">
                       {citySuggestions.map(city => (
                         <button 
                           key={city}
@@ -229,18 +252,18 @@ const Onboarding: React.FC<Props> = ({ onComplete }) => {
           {step === 2 && (
             <div className="animate-reveal space-y-10">
               <div className="space-y-4">
-                <label className="text-[10px] font-black text-brand-500 uppercase tracking-[0.3em] ml-2">Companion Name</label>
+                <label className="text-[10px] font-black text-brand-500 uppercase tracking-[0.3em] ml-2 block">Companion Name</label>
                 <input 
                   autoFocus
                   type="text" 
                   placeholder="e.g., Bruno, Rani, Kalu"
-                  className="w-full bg-brand-50 border-none rounded-[2.5rem] px-10 py-7 outline-none focus:ring-4 focus:ring-brand-500/10 transition-all text-2xl font-bold text-brand-900"
+                  className="w-full bg-brand-50 border-none rounded-[2.5rem] px-8 py-6 outline-none focus:ring-4 focus:ring-brand-500/10 transition-all text-xl md:text-2xl font-bold text-brand-900"
                   value={formData.name}
                   onChange={(e) => setFormData({...formData, name: e.target.value})}
                 />
               </div>
               <div className="space-y-4">
-                <label className="text-[10px] font-black text-brand-500 uppercase tracking-[0.3em] ml-2">Gender</label>
+                <label className="text-[10px] font-black text-brand-500 uppercase tracking-[0.3em] ml-2 block">Gender</label>
                 <div className="flex gap-4">
                   {['Male', 'Female'].map(g => (
                     <button 
@@ -260,8 +283,8 @@ const Onboarding: React.FC<Props> = ({ onComplete }) => {
           {step === 3 && (
             <div className="animate-reveal space-y-8">
               <div className="space-y-4">
-                <label className="text-[10px] font-black text-brand-500 uppercase tracking-[0.3em] ml-2">Breed / Lineage</label>
-                <div className="grid grid-cols-2 gap-3">
+                <label className="text-[10px] font-black text-brand-500 uppercase tracking-[0.3em] ml-2 block">Breed / Lineage</label>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   {breeds.map(b => (
                     <button 
                       key={b}
@@ -274,13 +297,13 @@ const Onboarding: React.FC<Props> = ({ onComplete }) => {
                 </div>
               </div>
               <div className="space-y-4">
-                <label className="text-[10px] font-black text-brand-500 uppercase tracking-[0.3em] ml-2">Life Stage</label>
-                <div className="flex gap-3">
+                <label className="text-[10px] font-black text-brand-500 uppercase tracking-[0.3em] ml-2 block">Life Stage</label>
+                <div className="grid grid-cols-3 gap-3">
                   {['Puppy', 'Adult', 'Senior'].map(stage => (
                     <button 
                       key={stage}
                       onClick={() => setFormData({...formData, age: stage})}
-                      className={`flex-1 py-4 rounded-xl border-2 text-xs font-bold transition-all ${formData.age === stage ? 'bg-brand-900 text-white border-brand-900' : 'bg-white text-brand-900 border-brand-50 hover:border-brand-100'}`}
+                      className={`py-4 rounded-xl border-2 text-xs font-bold transition-all ${formData.age === stage ? 'bg-brand-900 text-white border-brand-900' : 'bg-white text-brand-900 border-brand-50 hover:border-brand-100'}`}
                     >
                       {stage}
                     </button>
@@ -294,19 +317,19 @@ const Onboarding: React.FC<Props> = ({ onComplete }) => {
           {step === 4 && (
             <div className="animate-reveal space-y-10">
               <div className="space-y-4">
-                <label className="text-[10px] font-black text-brand-500 uppercase tracking-[0.3em] ml-2">Weight Metric (kg)</label>
-                <div className="flex items-center gap-8">
+                <label className="text-[10px] font-black text-brand-500 uppercase tracking-[0.3em] ml-2 block">Weight Metric (kg)</label>
+              <div className="flex items-center gap-4 sm:gap-8">
                   <input 
                     type="range" min="1" max="80" 
                     className="flex-1 accent-brand-500 h-2 bg-brand-50 rounded-lg appearance-none cursor-pointer"
                     value={formData.weight}
                     onChange={(e) => setFormData({...formData, weight: e.target.value})}
                   />
-                  <span className="bg-brand-900 text-white px-8 py-3 rounded-2xl font-display font-black text-2xl shadow-xl">{formData.weight}</span>
+                  <span className="bg-brand-900 text-white px-6 py-3 rounded-2xl font-display font-black text-xl shadow-xl">{formData.weight}</span>
                 </div>
               </div>
               <div className="space-y-4">
-                <label className="text-[10px] font-black text-brand-500 uppercase tracking-[0.3em] ml-2">Activity Profile</label>
+                <label className="text-[10px] font-black text-brand-500 uppercase tracking-[0.3em] ml-2 block">Activity Profile</label>
                 <div className="space-y-3">
                   {['Low', 'Moderate', 'High'].map(level => (
                     <button 
@@ -323,14 +346,82 @@ const Onboarding: React.FC<Props> = ({ onComplete }) => {
                   ))}
                 </div>
               </div>
-              <button onClick={next} className="w-full bg-brand-900 text-white py-6 rounded-[2.5rem] font-bold text-xl shadow-2xl hover:bg-brand-500 transition-all active:scale-95">Proceed to Nutrition</button>
+              <button onClick={next} className="w-full bg-brand-900 text-white py-5 rounded-[2.5rem] font-bold text-lg md:text-xl shadow-2xl hover:bg-brand-500 transition-all active:scale-95">Proceed to Health</button>
             </div>
           )}
 
           {step === 5 && (
             <div className="animate-reveal space-y-10">
               <div className="space-y-4">
-                <label className="text-[10px] font-black text-brand-500 uppercase tracking-[0.3em] ml-2">Dietary Foundation</label>
+                <label className="text-[10px] font-black text-brand-500 uppercase tracking-[0.3em] ml-2 block">Age (Months)</label>
+                <input
+                  type="number"
+                  min="1"
+                  placeholder="e.g., 18"
+                  className="w-full bg-brand-50 border-none rounded-[2.5rem] px-8 py-5 outline-none focus:ring-4 focus:ring-brand-500/10 transition-all text-lg font-bold text-brand-900"
+                  value={formData.ageMonths}
+                  onChange={(e) => setFormData({ ...formData, ageMonths: e.target.value })}
+                />
+              </div>
+              <div className="space-y-4">
+                <label className="text-[10px] font-black text-brand-500 uppercase tracking-[0.3em] ml-2 block">Spay / Neuter</label>
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                  {['Yes', 'No', 'Unknown'].map(status => (
+                    <button
+                      key={status}
+                      onClick={() => setFormData({ ...formData, spayNeuterStatus: status as any })}
+                      className={`py-4 rounded-2xl border-2 text-xs font-bold transition-all ${formData.spayNeuterStatus === status ? 'bg-brand-900 text-white border-brand-900' : 'bg-white text-brand-900 border-brand-50 hover:border-brand-100'}`}
+                    >
+                      {status}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <div className="space-y-4">
+                <label className="text-[10px] font-black text-brand-500 uppercase tracking-[0.3em] ml-2 block">Vaccination Status</label>
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                  {['Up to date', 'Partial', 'Not sure'].map(status => (
+                    <button
+                      key={status}
+                      onClick={() => setFormData({ ...formData, vaccinationStatus: status as any })}
+                      className={`py-4 rounded-2xl border-2 text-xs font-bold transition-all ${formData.vaccinationStatus === status ? 'bg-brand-900 text-white border-brand-900' : 'bg-white text-brand-900 border-brand-50 hover:border-brand-100'}`}
+                    >
+                      {status}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <div className="space-y-4">
+                <label className="text-[10px] font-black text-brand-500 uppercase tracking-[0.3em] ml-2 block">Last Vaccine Date (Optional)</label>
+                <input
+                  type="date"
+                  className="w-full bg-brand-50 border-none rounded-[2.5rem] px-8 py-5 outline-none focus:ring-4 focus:ring-brand-500/10 transition-all text-base font-bold text-brand-900"
+                  value={formData.lastVaccineDate}
+                  onChange={(e) => setFormData({ ...formData, lastVaccineDate: e.target.value })}
+                />
+              </div>
+              <div className="space-y-4">
+                <label className="text-[10px] font-black text-brand-500 uppercase tracking-[0.3em] ml-2 block">Vet Access</label>
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                  {['Regular Vet', 'Occasional', 'None'].map(status => (
+                    <button
+                      key={status}
+                      onClick={() => setFormData({ ...formData, vetAccess: status as any })}
+                      className={`py-4 rounded-2xl border-2 text-xs font-bold transition-all ${formData.vetAccess === status ? 'bg-brand-900 text-white border-brand-900' : 'bg-white text-brand-900 border-brand-50 hover:border-brand-100'}`}
+                    >
+                      {status}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <button onClick={next} className="w-full bg-brand-900 text-white py-6 rounded-[2.5rem] font-bold text-xl shadow-2xl hover:bg-brand-500 transition-all active:scale-95">Proceed to Nutrition</button>
+            </div>
+          )}
+
+          {step === 6 && (
+            <div className="animate-reveal space-y-10">
+              <div className="space-y-4">
+                <label className="text-[10px] font-black text-brand-500 uppercase tracking-[0.3em] ml-2 block">Dietary Foundation</label>
                 <div className="space-y-4">
                   {['Home Cooked', 'Kibble', 'Mixed'].map(type => (
                     <button 
@@ -349,14 +440,115 @@ const Onboarding: React.FC<Props> = ({ onComplete }) => {
                   ))}
                 </div>
               </div>
-              <button onClick={next} className="w-full bg-brand-900 text-white py-6 rounded-[2.5rem] font-bold text-xl shadow-2xl hover:bg-brand-500 transition-all active:scale-95">Finalize Setup</button>
+              <button onClick={next} className="w-full bg-brand-900 text-white py-6 rounded-[2.5rem] font-bold text-xl shadow-2xl hover:bg-brand-500 transition-all active:scale-95">Continue Routine</button>
             </div>
           )}
 
-          {step === 6 && (
+          {step === 7 && (
+            <div className="animate-reveal space-y-8">
+              <div className="space-y-4">
+                <label className="text-[10px] font-black text-brand-500 uppercase tracking-[0.3em] ml-2 block">Daily Activity Baseline</label>
+                <div className="grid grid-cols-3 gap-3">
+                  {['15-30 min', '30-60 min', '60+ min'].map(level => (
+                    <button
+                      key={level}
+                      onClick={() => setFormData({ ...formData, activityBaseline: level as any })}
+                      className={`py-4 rounded-2xl border-2 text-xs font-bold transition-all ${formData.activityBaseline === level ? 'bg-brand-900 text-white border-brand-900' : 'bg-white text-brand-900 border-brand-50 hover:border-brand-100'}`}
+                    >
+                      {level}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                <div className="space-y-3">
+                  <label className="text-[10px] font-black text-brand-500 uppercase tracking-[0.3em] ml-2 block">Home Type</label>
+                  <select
+                    value={formData.housingType}
+                    onChange={(e) => setFormData({ ...formData, housingType: e.target.value as any })}
+                    className="w-full bg-brand-50 border-none rounded-2xl px-6 py-4 outline-none focus:ring-4 focus:ring-brand-500/10 text-sm font-bold"
+                  >
+                    <option>Apartment</option>
+                    <option>Independent House</option>
+                    <option>Farm / Villa</option>
+                  </select>
+                </div>
+                <div className="space-y-3">
+                  <label className="text-[10px] font-black text-brand-500 uppercase tracking-[0.3em] ml-2 block">Walk Surface</label>
+                  <select
+                    value={formData.walkSurface}
+                    onChange={(e) => setFormData({ ...formData, walkSurface: e.target.value as any })}
+                    className="w-full bg-brand-50 border-none rounded-2xl px-6 py-4 outline-none focus:ring-4 focus:ring-brand-500/10 text-sm font-bold"
+                  >
+                    <option>Asphalt</option>
+                    <option>Grass</option>
+                    <option>Mixed</option>
+                  </select>
+                </div>
+                <div className="space-y-3">
+                  <label className="text-[10px] font-black text-brand-500 uppercase tracking-[0.3em] ml-2 block">Park Access</label>
+                  <select
+                    value={formData.parkAccess}
+                    onChange={(e) => setFormData({ ...formData, parkAccess: e.target.value as any })}
+                    className="w-full bg-brand-50 border-none rounded-2xl px-6 py-4 outline-none focus:ring-4 focus:ring-brand-500/10 text-sm font-bold"
+                  >
+                    <option>Yes</option>
+                    <option>No</option>
+                  </select>
+                </div>
+                <div className="space-y-3">
+                  <label className="text-[10px] font-black text-brand-500 uppercase tracking-[0.3em] ml-2 block">Feeding Schedule</label>
+                  <select
+                    value={formData.feedingSchedule}
+                    onChange={(e) => setFormData({ ...formData, feedingSchedule: e.target.value as any })}
+                    className="w-full bg-brand-50 border-none rounded-2xl px-6 py-4 outline-none focus:ring-4 focus:ring-brand-500/10 text-sm font-bold"
+                  >
+                    <option>Once</option>
+                    <option>Twice</option>
+                    <option>Thrice</option>
+                  </select>
+                </div>
+              </div>
+              <div className="space-y-3">
+                <label className="text-[10px] font-black text-brand-500 uppercase tracking-[0.3em] ml-2 block">Primary Food Brand (Optional)</label>
+                <input
+                  type="text"
+                  placeholder="e.g., Royal Canin, Drools"
+                  className="w-full bg-brand-50 border-none rounded-[2.5rem] px-8 py-5 outline-none focus:ring-4 focus:ring-brand-500/10 transition-all text-base font-bold text-brand-900"
+                  value={formData.foodBrand}
+                  onChange={(e) => setFormData({ ...formData, foodBrand: e.target.value })}
+                />
+              </div>
+              <div className="space-y-3">
+                <label className="text-[10px] font-black text-brand-500 uppercase tracking-[0.3em] ml-2 block">Health Goals</label>
+                <div className="grid grid-cols-1 gap-3">
+                  {healthGoals.map(goal => {
+                    const selected = formData.goals?.includes(goal);
+                    return (
+                      <button
+                        key={goal}
+                        onClick={() => {
+                          const nextGoals = selected
+                            ? formData.goals?.filter(g => g !== goal) || []
+                            : [...(formData.goals || []), goal];
+                          setFormData({ ...formData, goals: nextGoals });
+                        }}
+                        className={`p-4 rounded-2xl border-2 text-left transition-all ${selected ? 'border-brand-500 bg-brand-50 text-brand-900 shadow-sm' : 'border-brand-50 bg-white text-brand-800/50 hover:border-brand-200'}`}
+                      >
+                        {goal}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+              <button onClick={next} className="w-full bg-brand-900 text-white py-5 rounded-[2.5rem] font-bold text-lg md:text-xl shadow-2xl hover:bg-brand-500 transition-all active:scale-95">Finalize Setup</button>
+            </div>
+          )}
+
+          {step === 8 && (
             <div className="animate-reveal space-y-10">
               <div className="space-y-4">
-                <label className="text-[10px] font-black text-brand-500 uppercase tracking-[0.3em] ml-2">Select Priorities</label>
+                <label className="text-[10px] font-black text-brand-500 uppercase tracking-[0.3em] ml-2 block">Select Priorities</label>
                 <div className="grid grid-cols-1 gap-3">
                   {priorities.map(p => {
                     const selected = formData.interests.includes(p);
@@ -384,7 +576,7 @@ const Onboarding: React.FC<Props> = ({ onComplete }) => {
             </div>
           )}
 
-          {step === 7 && (
+          {step === 9 && (
             <div className="text-center space-y-12 py-10">
               <div className="relative w-48 h-48 mx-auto">
                 <div className="absolute inset-0 border-8 border-brand-50 rounded-full" />

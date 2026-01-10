@@ -51,7 +51,6 @@ const Dashboard: React.FC<Props> = ({ user, setUser, onUpgrade, onLogout }) => {
   const [checklistStreak, setChecklistStreak] = useState(0);
   const [lastChecklistDate, setLastChecklistDate] = useState('');
   const [checklistHistory, setChecklistHistory] = useState<ChecklistHistoryPoint[]>([]);
-  const [expandedFeedId, setExpandedFeedId] = useState<string | null>(null);
   const [expandedServiceId, setExpandedServiceId] = useState<string | null>(null);
   const [showServices, setShowServices] = useState(true);
   const [activeParentAction, setActiveParentAction] = useState<string | null>(null);
@@ -636,42 +635,18 @@ const Dashboard: React.FC<Props> = ({ user, setUser, onUpgrade, onLogout }) => {
                 <div className="max-h-[520px] overflow-y-auto pr-2 space-y-4 live-feed-scroll">
                   {liveFeedItems.map(item => (
                     <div key={item.id} className="bg-brand-50/40 p-4 rounded-2xl">
-                      <button
-                        onClick={() => setExpandedFeedId(expandedFeedId === item.id ? null : item.id)}
-                        className="w-full text-left"
-                      >
-                        <div className="flex items-center justify-between mb-2">
-                          <span className="text-[8px] font-black uppercase tracking-widest text-brand-500">
-                            {item.type === 'tip' ? 'Vet Verified' : item.type === 'event' ? 'Community' : 'Safety Radar'}
-                          </span>
-                          <span className="text-[8px] font-bold uppercase tracking-widest text-brand-300">{item.meta}</span>
-                        </div>
-                        <h4 className="text-sm font-display font-black text-brand-900 mb-1">{item.title}</h4>
-                        <p className="text-xs text-brand-800/70 font-medium italic">"{item.detail}"</p>
-                      </button>
-                      {expandedFeedId === item.id && (
-                        <div className="mt-3 bg-white/70 p-3 rounded-xl border border-brand-100 space-y-2">
-                          <p className="text-[10px] text-brand-800/70 font-medium">
-                            {item.type === 'event'
-                              ? "Tap below to view the event details or share with a pet parent."
-                              : item.type === 'radar'
-                              ? "Use this safety snapshot to plan walks and hydration today."
-                              : "Save this tip and build a healthier routine."}
-                          </p>
-                          <div className="flex items-center gap-3">
-                            {item.url && (
-                              <a href={item.url} target="_blank" className="text-[9px] font-black text-brand-900 underline underline-offset-4">
-                                View Details ↗
-                              </a>
-                            )}
-                            <button
-                              onClick={() => setExpandedFeedId(null)}
-                              className="text-[9px] font-black text-brand-500 uppercase tracking-widest"
-                            >
-                              Minimize
-                            </button>
-                          </div>
-                        </div>
+                      <div className="flex items-center justify-between mb-2">
+                        <span className="text-[8px] font-black uppercase tracking-widest text-brand-500">
+                          {item.type === 'tip' ? 'Vet Verified' : item.type === 'event' ? 'Community' : 'Safety Radar'}
+                        </span>
+                        <span className="text-[8px] font-bold uppercase tracking-widest text-brand-300">{item.meta}</span>
+                      </div>
+                      <h4 className="text-sm font-display font-black text-brand-900 mb-1">{item.title}</h4>
+                      <p className="text-xs text-brand-800/70 font-medium italic">"{item.detail}"</p>
+                      {item.url && (
+                        <a href={item.url} target="_blank" className="text-[9px] font-black text-brand-900 underline underline-offset-4 mt-2 inline-block">
+                          View Details ↗
+                        </a>
                       )}
                     </div>
                   ))}
@@ -1229,7 +1204,7 @@ const Dashboard: React.FC<Props> = ({ user, setUser, onUpgrade, onLogout }) => {
               </div>
             </div>
             <div className="flex flex-col gap-6">
-              <button onClick={onLogout} className="w-full py-6 text-red-300 font-black uppercase tracking-[0.5em] text-[10px] hover:text-red-500 transition-colors">Terminate Parent Node</button>
+              <button onClick={onLogout} className="w-full py-6 text-red-300 font-black uppercase tracking-[0.5em] text-[10px] hover:text-red-500 transition-colors">Logout</button>
             </div>
           </div>
         )}
