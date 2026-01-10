@@ -1,7 +1,7 @@
 
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { getCountries, getCountryCallingCode, parsePhoneNumberFromString } from 'libphonenumber-js';
-import { supabase } from '../services/supabaseClient';
+import { apiClient } from '../services/apiClient';
 
 interface Props {
   onStart: (mode?: 'login' | 'signup') => void;
@@ -117,39 +117,23 @@ const LandingPage: React.FC<Props> = ({ onStart }) => {
       return;
     }
 
-    setIsSubmitting(true);
-    if (!supabase) {
-      setFormError('Waitlist storage is not configured yet.');
-      setIsSubmitting(false);
-      return;
-    }
-
     try {
-      const { data: existing, error: lookupError } = await supabase
-        .from('beta_waitlist')
-        .select('id')
-        .or(`email.eq.${trimmedEmail},phone_e164.eq.${parsedPhone.number}`)
-        .limit(1);
-      if (lookupError) {
-        throw lookupError;
-      }
-      if (existing && existing.length > 0) {
-        setFormError('You have already submitted your interest.');
-        setIsSubmitting(false);
+      setIsSubmitting(true);
+      const response = await apiClient.post<{ status?: string; message?: string }>(
+        '/api/waitlist',
+        {
+          email: trimmedEmail,
+          premiumInterest: premiumInterest.join(', '),
+          countryCode: selectedCountry.code,
+          countryName: selectedCountry.name,
+          phoneE164: parsedPhone.number,
+          phoneNational: parsedPhone.nationalNumber,
+          source: 'landing_page'
+        }
+      );
+      if (response?.status === 'duplicate') {
+        setFormError(response.message || 'You have already submitted your interest.');
         return;
-      }
-
-      const { error } = await supabase.from('beta_waitlist').insert({
-        email: trimmedEmail,
-        premium_interest: premiumInterest.join(', '),
-        country_code: selectedCountry.code,
-        country_name: selectedCountry.name,
-        phone_e164: parsedPhone.number,
-        phone_national: parsedPhone.nationalNumber,
-        source: 'landing_page'
-      });
-      if (error) {
-        throw error;
       }
       setFormSubmitted(true);
       setEmail('');

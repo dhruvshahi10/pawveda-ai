@@ -1,5 +1,7 @@
 
 import React, { useEffect, useState } from 'react';
+import { apiClient } from '../services/apiClient';
+import { coerceRole, setAuthSession } from '../lib/auth';
 
 type AuthMode = 'login' | 'signup' | 'forgot';
 
@@ -9,8 +11,6 @@ interface Props {
   initialMode?: AuthMode;
   onModeChange?: (mode: AuthMode) => void;
 }
-
-const API_BASE_URL = import.meta.env.VITE_BACKEND_URL || 'http://localhost:8080';
 
 const Auth: React.FC<Props> = ({ onComplete, onBack, initialMode = 'signup', onModeChange }) => {
   const [mode, setMode] = useState<AuthMode>(initialMode);
@@ -82,34 +82,21 @@ const Auth: React.FC<Props> = ({ onComplete, onBack, initialMode = 'signup', onM
           ? { email: trimmedEmail, password, fullName: fullName.trim(), phoneE164, role }
           : { email: trimmedEmail, password };
 
-      const response = await fetch(`${API_BASE_URL}${endpoint}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload)
-      });
+      const data = await apiClient.post<{
+        accessToken?: string;
+        refreshToken?: string;
+        user?: { role?: unknown } | null;
+      }>(endpoint, payload);
 
-      const data = await response.json().catch(() => ({}));
-      if (!response.ok) {
-        throw new Error(data?.error || 'Authentication failed.');
+      if (data?.accessToken) {
+        setAuthSession({
+          accessToken: data.accessToken,
+          refreshToken: data.refreshToken,
+          user: data.user || null
+        });
       }
 
-      if (data?.accessToken && data?.refreshToken) {
-        localStorage.setItem(
-          'pawveda_auth',
-          JSON.stringify({
-            accessToken: data.accessToken,
-            refreshToken: data.refreshToken,
-            user: data.user || null
-          })
-        );
-      }
-
-      const rawRole = typeof data?.user?.role === 'string' ? data.user.role.toLowerCase() : null;
-      const resolvedRole = rawRole === 'pet-parent' || rawRole === 'ngo'
-        ? rawRole
-        : rawRole === 'pet_parent'
-        ? 'pet-parent'
-        : role;
+      const resolvedRole = coerceRole(data?.user?.role) ?? role;
       onComplete(resolvedRole);
       resetForm();
     } catch (err) {

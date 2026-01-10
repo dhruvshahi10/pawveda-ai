@@ -1,10 +1,10 @@
 import React, { useState } from 'react';
+import { getAuthSession } from '../lib/auth';
+import { apiClient } from '../services/apiClient';
 
 interface Props {
   onComplete: (data: { name: string; phone: string; city: string; orgName?: string }) => void;
 }
-
-const API_BASE_URL = import.meta.env.VITE_BACKEND_URL || 'http://localhost:8080';
 
 const OrgOnboarding: React.FC<Props> = ({ onComplete }) => {
   const [form, setForm] = useState({
@@ -18,31 +18,24 @@ const OrgOnboarding: React.FC<Props> = ({ onComplete }) => {
   const handleSubmit = async () => {
     if (submitting) return;
     setSubmitting(true);
-    const authRaw = localStorage.getItem('pawveda_auth');
-    const auth = authRaw ? JSON.parse(authRaw) : null;
-    if (!auth?.accessToken) {
+    const session = getAuthSession();
+    if (!session?.accessToken) {
       setSubmitting(false);
       onComplete(form);
       return;
     }
 
     try {
-      const response = await fetch(`${API_BASE_URL}/api/orgs/profile`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${auth.accessToken}`
-        },
-        body: JSON.stringify({
+      await apiClient.post(
+        '/api/orgs/profile',
+        {
           contactName: form.name,
           phone: form.phone,
           city: form.city,
           orgName: form.orgName || null
-        })
-      });
-      if (!response.ok) {
-        console.error('Failed to save org profile', await response.text());
-      }
+        },
+        { auth: true }
+      );
     } catch (err) {
       console.error('Failed to save org profile', err);
     } finally {

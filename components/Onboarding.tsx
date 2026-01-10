@@ -1,12 +1,12 @@
 
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
+import { getAuthSession } from '../lib/auth';
+import { apiClient } from '../services/apiClient';
 import { PetData } from '../types';
 
 interface Props {
   onComplete: (data: PetData) => void;
 }
-
-const API_BASE_URL = import.meta.env.VITE_BACKEND_URL || 'http://localhost:8080';
 
 const steps = [
   { 
@@ -139,21 +139,16 @@ const Onboarding: React.FC<Props> = ({ onComplete }) => {
   }, [step]);
 
   const handleSubmit = async () => {
-    const authRaw = localStorage.getItem('pawveda_auth');
-    const auth = authRaw ? JSON.parse(authRaw) : null;
-    if (!auth?.accessToken) {
+    const session = getAuthSession();
+    if (!session?.accessToken) {
       onComplete(formData);
       return;
     }
 
     try {
-      const response = await fetch(`${API_BASE_URL}/api/pets`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${auth.accessToken}`
-        },
-        body: JSON.stringify({
+      await apiClient.post(
+        '/api/pets',
+        {
           name: formData.name,
           breed: formData.breed,
           age: formData.age,
@@ -176,12 +171,9 @@ const Onboarding: React.FC<Props> = ({ onComplete }) => {
           allergies: formData.allergies,
           interests: formData.interests,
           goals: formData.goals
-        })
-      });
-
-      if (!response.ok) {
-        console.error('Failed to save pet profile', await response.text());
-      }
+        },
+        { auth: true }
+      );
     } catch (err) {
       console.error('Failed to save pet profile', err);
     } finally {
