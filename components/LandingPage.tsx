@@ -1,5 +1,7 @@
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
+import { getCountries, getCountryCallingCode, parsePhoneNumberFromString } from 'libphonenumber-js';
+import { supabase } from '../services/supabaseClient';
 
 interface Props {
   onStart: () => void;
@@ -38,6 +40,10 @@ const LandingPage: React.FC<Props> = ({ onStart }) => {
   const [formSubmitted, setFormSubmitted] = useState(false);
   const [email, setEmail] = useState('');
   const [premiumInterest, setPremiumInterest] = useState('');
+  const [phoneCountry, setPhoneCountry] = useState('IN');
+  const [phoneNumber, setPhoneNumber] = useState('');
+  const [formError, setFormError] = useState('');
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const [isVisible, setIsVisible] = useState(false);
 
   useEffect(() => {
@@ -54,13 +60,100 @@ const LandingPage: React.FC<Props> = ({ onStart }) => {
     };
   }, []);
 
-  const handleCtaSubmit = (e: React.FormEvent) => {
+  const countries = useMemo(() => {
+    const displayNames =
+      typeof Intl !== 'undefined' && 'DisplayNames' in Intl
+        ? new Intl.DisplayNames(['en'], { type: 'region' })
+        : null;
+    return getCountries()
+      .map(code => ({
+        code,
+        name: displayNames?.of(code) || code,
+        callingCode: getCountryCallingCode(code)
+      }))
+      .sort((a, b) => a.name.localeCompare(b.name));
+  }, []);
+
+  const selectedCountry = useMemo(
+    () => countries.find(country => country.code === phoneCountry),
+    [countries, phoneCountry]
+  );
+
+  const handleCtaSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!email) return;
-    const waitlist = JSON.parse(localStorage.getItem('pawveda_waitlist') || '[]');
-    waitlist.push({ email, premiumInterest, timestamp: new Date().toISOString() });
-    localStorage.setItem('pawveda_waitlist', JSON.stringify(waitlist));
-    setFormSubmitted(true);
+    if (isSubmitting) return;
+    setFormError('');
+
+    const trimmedEmail = email.trim().toLowerCase();
+    const emailValid = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmedEmail);
+    if (!emailValid) {
+      setFormError('Please enter a valid email address.');
+      return;
+    }
+    if (!premiumInterest) {
+      setFormError('Please select the feature you are most excited about.');
+      return;
+    }
+    if (!phoneNumber.trim()) {
+      setFormError('Please enter your contact number.');
+      return;
+    }
+    if (!selectedCountry) {
+      setFormError('Please select your country.');
+      return;
+    }
+
+    const normalizedPhone = phoneNumber.replace(/\D/g, '');
+    const parsedPhone = parsePhoneNumberFromString(normalizedPhone, phoneCountry);
+    if (!parsedPhone || !parsedPhone.isValid()) {
+      setFormError(`Please enter a valid ${selectedCountry.name} phone number.`);
+      return;
+    }
+
+    setIsSubmitting(true);
+    if (!supabase) {
+      setFormError('Waitlist storage is not configured yet.');
+      setIsSubmitting(false);
+      return;
+    }
+
+    try {
+      const { data: existing, error: lookupError } = await supabase
+        .from('beta_waitlist')
+        .select('id')
+        .or(`email.eq.${trimmedEmail},phone_e164.eq.${parsedPhone.number}`)
+        .limit(1);
+      if (lookupError) {
+        throw lookupError;
+      }
+      if (existing && existing.length > 0) {
+        setFormError('You have already submitted your interest.');
+        setIsSubmitting(false);
+        return;
+      }
+
+      const { error } = await supabase.from('beta_waitlist').insert({
+        email: trimmedEmail,
+        premium_interest: premiumInterest,
+        country_code: selectedCountry.code,
+        country_name: selectedCountry.name,
+        phone_e164: parsedPhone.number,
+        phone_national: parsedPhone.nationalNumber,
+        source: 'landing_page'
+      });
+      if (error) {
+        throw error;
+      }
+      setFormSubmitted(true);
+      setEmail('');
+      setPremiumInterest('');
+      setPhoneNumber('');
+    } catch (err) {
+      console.error('Waitlist submission failed:', err);
+      setFormError('We could not save your details. Please try again.');
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   return (
@@ -322,6 +415,36 @@ const LandingPage: React.FC<Props> = ({ onStart }) => {
                     onChange={(e) => setEmail(e.target.value)}
                   />
                 </div>
+                <div className="grid gap-4 md:grid-cols-[1.1fr_1.5fr]">
+                  <div className="relative">
+                    <select 
+                      required
+                      className="w-full bg-[#FAF8F6] border-2 border-transparent focus:border-brand-500/30 rounded-[2.5rem] px-8 py-6 outline-none transition-all text-lg font-medium shadow-inner appearance-none cursor-pointer"
+                      value={phoneCountry}
+                      onChange={(e) => setPhoneCountry(e.target.value)}
+                    >
+                      {countries.map(country => (
+                        <option key={country.code} value={country.code}>
+                          {country.name}
+                        </option>
+                      ))}
+                    </select>
+                    <div className="absolute right-8 top-1/2 -translate-y-1/2 pointer-events-none opacity-40">▼</div>
+                  </div>
+                  <div className="relative">
+                    <span className="absolute left-8 top-1/2 -translate-y-1/2 text-sm font-bold text-brand-800/50">
+                      +{selectedCountry?.callingCode || ''}
+                    </span>
+                    <input 
+                      required
+                      type="tel" 
+                      placeholder="Contact Number" 
+                      className="w-full bg-[#FAF8F6] border-2 border-transparent focus:border-brand-500/30 rounded-[2.5rem] px-10 py-6 pl-20 outline-none transition-all text-lg font-medium shadow-inner"
+                      value={phoneNumber}
+                      onChange={(e) => setPhoneNumber(e.target.value)}
+                    />
+                  </div>
+                </div>
                 <div className="relative">
                   <select 
                     required
@@ -330,19 +453,23 @@ const LandingPage: React.FC<Props> = ({ onStart }) => {
                     onChange={(e) => setPremiumInterest(e.target.value)}
                   >
                     <option value="" disabled>What feature are you excited for?</option>
-                    <option value="nutrition">AI-Powered NutriScan (Dal/Curd Audits)</option>
-                    <option value="medical">Health Vault (Prescription Analysis)</option>
-                    <option value="climate">Climate Shield (Heat Safety Alerts)</option>
-                    <option value="studio">Studio Pro (Cinematic Memories)</option>
-                    <option value="firstaid">24/7 AI First-Aid Companion</option>
+                    <option value="AI-Powered NutriScan (Dal/Curd Audits)">AI-Powered NutriScan (Dal/Curd Audits)</option>
+                    <option value="Health Vault (Prescription Analysis)">Health Vault (Prescription Analysis)</option>
+                    <option value="Climate Shield (Heat Safety Alerts)">Climate Shield (Heat Safety Alerts)</option>
+                    <option value="Studio Pro (Cinematic Memories)">Studio Pro (Cinematic Memories)</option>
+                    <option value="24/7 AI First-Aid Companion">24/7 AI First-Aid Companion</option>
                   </select>
                   <div className="absolute right-8 top-1/2 -translate-y-1/2 pointer-events-none opacity-40">▼</div>
                 </div>
+                {formError && (
+                  <p className="text-sm text-red-500 font-semibold text-center">{formError}</p>
+                )}
                 <button 
                   type="submit"
-                  className="w-full bg-brand-900 text-white py-6 rounded-[2.5rem] font-black text-xl shadow-2xl hover:bg-brand-500 transition-all active:scale-95 transform hover:-translate-y-1"
+                  disabled={isSubmitting}
+                  className="w-full bg-brand-900 text-white py-6 rounded-[2.5rem] font-black text-xl shadow-2xl hover:bg-brand-500 transition-all active:scale-95 transform hover:-translate-y-1 disabled:opacity-60 disabled:cursor-not-allowed"
                 >
-                  Join the Beta Waitlist
+                  {isSubmitting ? 'Saving your spot...' : 'Join the Beta Waitlist'}
                 </button>
               </form>
             )}
