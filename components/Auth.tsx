@@ -1,15 +1,19 @@
 
 import React, { useEffect, useState } from 'react';
 
+type AuthMode = 'login' | 'signup' | 'forgot';
+
 interface Props {
   onComplete: (role: 'pet-parent' | 'ngo') => void;
   onBack: () => void;
+  initialMode?: AuthMode;
+  onModeChange?: (mode: AuthMode) => void;
 }
 
 const API_BASE_URL = import.meta.env.VITE_BACKEND_URL || 'http://localhost:8080';
 
-const Auth: React.FC<Props> = ({ onComplete, onBack }) => {
-  const [mode, setMode] = useState<'login' | 'signup' | 'forgot'>('signup');
+const Auth: React.FC<Props> = ({ onComplete, onBack, initialMode = 'signup', onModeChange }) => {
+  const [mode, setMode] = useState<AuthMode>(initialMode);
   const [loading, setLoading] = useState(false);
   const [sentReset, setSentReset] = useState(false);
   const [countryCode, setCountryCode] = useState('+91');
@@ -25,12 +29,21 @@ const Auth: React.FC<Props> = ({ onComplete, onBack }) => {
     setSentReset(false);
   }, [mode]);
 
+  useEffect(() => {
+    setMode(prev => (prev !== initialMode ? initialMode : prev));
+  }, [initialMode]);
+
   const resetForm = () => {
     setEmail('');
     setPassword('');
     setFullName('');
     setPhoneNumber('');
     setError('');
+  };
+
+  const updateMode = (nextMode: AuthMode) => {
+    setMode(nextMode);
+    onModeChange?.(nextMode);
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -91,7 +104,13 @@ const Auth: React.FC<Props> = ({ onComplete, onBack }) => {
         );
       }
 
-      onComplete(role);
+      const rawRole = typeof data?.user?.role === 'string' ? data.user.role.toLowerCase() : null;
+      const resolvedRole = rawRole === 'pet-parent' || rawRole === 'ngo'
+        ? rawRole
+        : rawRole === 'pet_parent'
+        ? 'pet-parent'
+        : role;
+      onComplete(resolvedRole);
       resetForm();
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Authentication failed.';
@@ -216,7 +235,7 @@ const Auth: React.FC<Props> = ({ onComplete, onBack }) => {
         <div className="mt-8 text-center text-sm space-y-3">
           {mode !== 'forgot' && (
             <button 
-              onClick={() => setMode(mode === 'signup' ? 'login' : 'signup')}
+              onClick={() => updateMode(mode === 'signup' ? 'login' : 'signup')}
               className="text-brand-500 font-bold hover:underline block w-full"
             >
               {mode === 'signup' ? 'Already have an account? Login' : "Don't have an account? Sign up"}
@@ -225,7 +244,7 @@ const Auth: React.FC<Props> = ({ onComplete, onBack }) => {
           {mode !== 'forgot' && (
             <button
               onClick={() => {
-                setMode('forgot');
+                updateMode('forgot');
                 setSentReset(false);
               }}
               className="text-brand-400 font-bold hover:underline"
@@ -234,7 +253,7 @@ const Auth: React.FC<Props> = ({ onComplete, onBack }) => {
             </button>
           )}
           {mode === 'forgot' && (
-            <button onClick={() => setMode('login')} className="text-brand-500 font-bold hover:underline">
+            <button onClick={() => updateMode('login')} className="text-brand-500 font-bold hover:underline">
               Back to login
             </button>
           )}

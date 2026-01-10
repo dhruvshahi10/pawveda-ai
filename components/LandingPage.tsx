@@ -4,7 +4,7 @@ import { getCountries, getCountryCallingCode, parsePhoneNumberFromString } from 
 import { supabase } from '../services/supabaseClient';
 
 interface Props {
-  onStart: () => void;
+  onStart: (mode?: 'login' | 'signup') => void;
 }
 
 const problems = [
@@ -188,8 +188,8 @@ const LandingPage: React.FC<Props> = ({ onStart }) => {
           <span className="text-2xl font-display font-bold text-brand-900 tracking-tighter">PawVeda</span>
         </div>
         <div className="flex items-center gap-8">
-          <button onClick={onStart} className="hidden md:block text-sm font-bold text-brand-800/60 hover:text-brand-900 transition-colors uppercase tracking-widest">Login</button>
-          <button onClick={onStart} className="bg-brand-900 text-white px-8 py-3.5 rounded-full font-bold shadow-xl hover:bg-brand-500 transition-all active:scale-95">
+          <button onClick={() => onStart('login')} className="hidden md:block text-sm font-bold text-brand-800/60 hover:text-brand-900 transition-colors uppercase tracking-widest">Login</button>
+          <button onClick={() => onStart('signup')} className="bg-brand-900 text-white px-8 py-3.5 rounded-full font-bold shadow-xl hover:bg-brand-500 transition-all active:scale-95">
             Get Started
           </button>
         </div>
@@ -213,7 +213,7 @@ const LandingPage: React.FC<Props> = ({ onStart }) => {
             </div>
 
             <div className="flex flex-col sm:flex-row gap-8 items-center">
-              <button onClick={onStart} className="w-full sm:w-auto bg-brand-500 text-white px-14 py-6 rounded-[2.5rem] text-xl font-bold shadow-2xl shadow-brand-500/20 hover:bg-brand-600 transition-all active:scale-95 group">
+              <button onClick={() => onStart('signup')} className="w-full sm:w-auto bg-brand-500 text-white px-14 py-6 rounded-[2.5rem] text-xl font-bold shadow-2xl shadow-brand-500/20 hover:bg-brand-600 transition-all active:scale-95 group">
                 Join the Pack <span className="inline-block group-hover:translate-x-2 transition-transform ml-2">→</span>
               </button>
               <div className="flex items-center gap-4">
@@ -375,7 +375,7 @@ const LandingPage: React.FC<Props> = ({ onStart }) => {
                   <p className="text-lg font-display font-black text-brand-900">{pet.name}</p>
                   <p className="text-sm text-brand-800/60">{pet.breed}</p>
                   <p className="text-[10px] font-bold uppercase tracking-widest text-brand-400">{pet.city}</p>
-                  <button onClick={onStart} className="w-full mt-3 bg-brand-900 text-white py-3 rounded-[1.5rem] text-[10px] font-black uppercase tracking-widest">
+                  <button onClick={() => onStart('signup')} className="w-full mt-3 bg-brand-900 text-white py-3 rounded-[1.5rem] text-[10px] font-black uppercase tracking-widest">
                     Adopt
                   </button>
                 </div>
@@ -383,7 +383,7 @@ const LandingPage: React.FC<Props> = ({ onStart }) => {
             ))}
           </div>
           <div className="text-center">
-            <button onClick={onStart} className="bg-brand-900 text-white px-10 py-4 rounded-full font-black uppercase tracking-widest text-[10px]">
+            <button onClick={() => onStart('signup')} className="bg-brand-900 text-white px-10 py-4 rounded-full font-black uppercase tracking-widest text-[10px]">
               Explore Adoption Hub
             </button>
           </div>
@@ -435,7 +435,7 @@ const LandingPage: React.FC<Props> = ({ onStart }) => {
                   </li>
                 ))}
               </ul>
-              <button onClick={onStart} className={`w-full mt-10 py-4 rounded-[2rem] font-black text-sm uppercase tracking-widest ${plan.name === "Elite Parent" ? "bg-brand-500 text-white" : "border-2 border-brand-500 text-brand-500 hover:bg-brand-500 hover:text-white"} transition-all`}>
+              <button onClick={() => onStart('signup')} className={`w-full mt-10 py-4 rounded-[2rem] font-black text-sm uppercase tracking-widest ${plan.name === "Elite Parent" ? "bg-brand-500 text-white" : "border-2 border-brand-500 text-brand-500 hover:bg-brand-500 hover:text-white"} transition-all`}>
                 Choose {plan.name}
               </button>
             </div>
