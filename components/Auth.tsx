@@ -10,6 +10,7 @@ const Auth: React.FC<Props> = ({ onComplete, onBack }) => {
   const [mode, setMode] = useState<'login' | 'signup' | 'forgot'>('signup');
   const [loading, setLoading] = useState(false);
   const [sentReset, setSentReset] = useState(false);
+  const [countryCode, setCountryCode] = useState('+91');
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -53,6 +54,28 @@ const Auth: React.FC<Props> = ({ onComplete, onBack }) => {
               placeholder="Email Address" 
               className="w-full bg-brand-50/50 border border-brand-100 rounded-2xl px-6 py-4 outline-none focus:ring-2 focus:ring-brand-500 transition-all"
             />
+            {mode === 'signup' && (
+              <div className="flex gap-3">
+                <select
+                  value={countryCode}
+                  onChange={(e) => setCountryCode(e.target.value)}
+                  className="bg-brand-50/50 border border-brand-100 rounded-2xl px-4 py-4 outline-none focus:ring-2 focus:ring-brand-500 transition-all"
+                >
+                  <option value="+91">🇮🇳 +91</option>
+                  <option value="+1">🇺🇸 +1</option>
+                  <option value="+44">🇬🇧 +44</option>
+                  <option value="+65">🇸🇬 +65</option>
+                </select>
+                <input
+                  required
+                  type="tel"
+                  inputMode="numeric"
+                  pattern="[0-9]{10}"
+                  placeholder="Mobile Number"
+                  className="flex-1 bg-brand-50/50 border border-brand-100 rounded-2xl px-6 py-4 outline-none focus:ring-2 focus:ring-brand-500 transition-all"
+                />
+              </div>
+            )}
             {mode !== 'forgot' && (
               <input 
                 required

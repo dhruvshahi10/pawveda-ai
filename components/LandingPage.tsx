@@ -1,5 +1,5 @@
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect } from 'react';
 
 interface Props {
   onStart: () => void;
@@ -24,8 +24,17 @@ const animalTypes = [
   { icon: "🦜", name: "Parrot", feature: "Avian Safety" },
 ];
 
+const petQuotes = [
+  "“Dogs are not our whole life, but they make our lives whole.” — Roger Caras",
+  "“Until one has loved an animal, a part of one’s soul remains unawakened.” — Anatole France",
+  "“What counts is not necessarily the size of the dog in the fight — it’s the size of the fight in the dog.” — Mark Twain",
+  "“Cats choose us; we don’t own them.” — Kristin Cast",
+  "“A pet is the only thing on earth that loves you more than you love yourself.” — Josh Billings"
+];
+
 const LandingPage: React.FC<Props> = ({ onStart }) => {
   const [problemIndex, setProblemIndex] = useState(0);
+  const [quoteIndex, setQuoteIndex] = useState(0);
   const [formSubmitted, setFormSubmitted] = useState(false);
   const [email, setEmail] = useState('');
   const [premiumInterest, setPremiumInterest] = useState('');
@@ -35,8 +44,14 @@ const LandingPage: React.FC<Props> = ({ onStart }) => {
     const interval = setInterval(() => {
       setProblemIndex(prev => (prev + 1) % problems.length);
     }, 4000);
+    const quoteInterval = setInterval(() => {
+      setQuoteIndex(prev => (prev + 1) % petQuotes.length);
+    }, 4500);
     setIsVisible(true);
-    return () => clearInterval(interval);
+    return () => {
+      clearInterval(interval);
+      clearInterval(quoteInterval);
+    };
   }, []);
 
   const handleCtaSubmit = (e: React.FormEvent) => {
@@ -124,11 +139,18 @@ const LandingPage: React.FC<Props> = ({ onStart }) => {
       {/* Value Proposition */}
       <section className="py-32 bg-white px-6">
         <div className="max-w-7xl mx-auto">
-          <div className="grid md:grid-cols-3 gap-16">
+          <div className="text-center mb-16">
+            <span className="text-brand-500 font-black text-[10px] uppercase tracking-[0.3em] mb-4 block">Pawveda Intelligence</span>
+            <h2 className="text-4xl md:text-5xl font-display font-black text-brand-900">What does your paw companion get?</h2>
+          </div>
+          <div className="hidden md:grid md:grid-cols-3 gap-16">
             {[
-              { icon: "🥗", title: "Meal Audits", desc: "Scan home-cooked meals for hidden toxins and nutritional balance specialized for Indian breeds.", delay: 'delay-100' },
-              { icon: "🌡️", title: "Smart Activity", desc: "Weather-synced walk suggestions for your city to prevent heatstroke and paw burns.", delay: 'delay-200' },
-              { icon: "📁", title: "Health Vault", desc: "Digital repository for prescriptions, vaccines, and growth charts. Secure and centralized.", delay: 'delay-300' }
+              { icon: "📡", title: "Daily Pet Brief", desc: "Personalized walking index, hydration risk, and air safety based on your city and breed.", delay: 'delay-100' },
+              { icon: "🧭", title: "Safety Radar", desc: "Heat, humidity, and air quality signals with safe walk windows and actions.", delay: 'delay-200' },
+              { icon: "🏥", title: "Nearby Services", desc: "Find clinics, groomers, and boarding quickly with map-verified links.", delay: 'delay-300' },
+              { icon: "⏰", title: "Care Reminders", desc: "Vaccines, deworming, grooming, and checkups — never miss a cycle.", delay: 'delay-400' },
+              { icon: "✅", title: "Breed Checklists", desc: "Daily routines and nutrition checklists tailored to your companion.", delay: 'delay-500' },
+              { icon: "✨", title: "Magic Studio", desc: "Generate cinematic pet art and keep memories in one place.", delay: 'delay-600' }
             ].map((item, i) => (
               <div key={i} className={`group p-12 rounded-[4rem] bg-brand-50 hover:bg-brand-900 transition-all duration-700 transform hover:-translate-y-4`}>
                 <div className="text-6xl mb-10 group-hover:scale-110 transition-transform duration-500">{item.icon}</div>
@@ -136,6 +158,55 @@ const LandingPage: React.FC<Props> = ({ onStart }) => {
                 <p className="text-brand-800/60 group-hover:text-white/70 leading-relaxed font-light text-lg transition-colors">{item.desc}</p>
               </div>
             ))}
+          </div>
+          <div className="md:hidden flex gap-5 overflow-x-auto pb-4 snap-x scrollbar-hide">
+            {[
+              { icon: "📡", title: "Daily Pet Brief", desc: "Personalized walking index, hydration risk, and air safety." },
+              { icon: "🧭", title: "Safety Radar", desc: "Heat, humidity, and air quality with safe windows." },
+              { icon: "🏥", title: "Nearby Services", desc: "Clinics, groomers, and boarding with verified links." },
+              { icon: "⏰", title: "Care Reminders", desc: "Vaccines, deworming, grooming cycles." },
+              { icon: "✅", title: "Breed Checklists", desc: "Daily routines tailored to your companion." },
+              { icon: "✨", title: "Magic Studio", desc: "Cinematic pet art and memories." }
+            ].map((item) => (
+              <div key={item.title} className="min-w-[240px] snap-center bg-brand-50 rounded-[2.5rem] p-6 border border-brand-100 shadow-sm">
+                <div className="text-4xl mb-4">{item.icon}</div>
+                <h3 className="text-xl font-display font-black text-brand-900 mb-3">{item.title}</h3>
+                <p className="text-sm text-brand-800/60 leading-relaxed">{item.desc}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      {/* Testimonials + Brand Partners */}
+      <section className="py-32 px-6 bg-brand-50">
+        <div className="max-w-7xl mx-auto space-y-16">
+          <div className="text-center">
+            <span className="text-brand-500 font-black text-[10px] uppercase tracking-[0.3em] mb-4 block">Loved by Parents</span>
+            <h2 className="text-4xl md:text-5xl font-display font-black text-brand-900">Stories From the Pawveda Pack</h2>
+          </div>
+          <div className="grid md:grid-cols-3 gap-10">
+            {[
+              { name: "Aarav & Coco", quote: "The walking index saved us during Delhi heatwaves. It feels personal.", city: "Delhi" },
+              { name: "Neha & Luna", quote: "Reminders + checklist finally made our routine consistent.", city: "Bengaluru" },
+              { name: "Rishi & Simba", quote: "Nearby services and vet tips are worth the premium alone.", city: "Mumbai" }
+            ].map((item) => (
+              <div key={item.name} className="bg-white p-8 rounded-[3rem] border border-brand-100 shadow-sm hover:shadow-xl transition-all">
+                <p className="text-lg font-display font-black text-brand-900 mb-4">“{item.quote}”</p>
+                <p className="text-[10px] font-black uppercase tracking-widest text-brand-500">{item.name}</p>
+                <p className="text-[9px] font-bold uppercase tracking-widest text-brand-300">{item.city}</p>
+              </div>
+            ))}
+          </div>
+          <div className="pt-6">
+            <p className="text-center text-[10px] font-black uppercase tracking-[0.3em] text-brand-400 mb-6">Trusted By Pet Brands</p>
+            <div className="flex flex-wrap items-center justify-center gap-6">
+              {["Royal Canin", "Pedigree", "Drools", "Heads Up For Tails", "Supertails", "Farmina"].map((brand) => (
+                <div key={brand} className="px-6 py-3 bg-white rounded-full border border-brand-100 text-[11px] font-black uppercase tracking-widest text-brand-500 shadow-sm">
+                  {brand}
+                </div>
+              ))}
+            </div>
           </div>
         </div>
       </section>
@@ -145,12 +216,18 @@ const LandingPage: React.FC<Props> = ({ onStart }) => {
         <div className="max-w-7xl mx-auto px-6 mb-20 text-center">
           <span className="text-brand-500 font-black text-[10px] uppercase tracking-[0.3em] mb-4 block">Inclusive Intelligence</span>
           <h2 className="text-4xl md:text-5xl font-display font-bold text-white tracking-tight">Care for Every Companion</h2>
+          <p className="text-white/60 text-lg mt-6 max-w-3xl mx-auto italic">
+            {petQuotes[quoteIndex]}
+          </p>
+          <p className="text-brand-200/60 text-[10px] font-black uppercase tracking-[0.4em] mt-6">
+            Dogs • Cats • Birds • Rabbits • Small Animals • Rescues
+          </p>
         </div>
 
         {/* Endless Carousel */}
-        <div className="flex gap-10 animate-scroll whitespace-nowrap px-10 py-4">
+        <div className="flex gap-10 animate-scroll md:whitespace-nowrap px-10 py-4 overflow-x-auto md:overflow-visible snap-x scrollbar-hide">
           {[...animalTypes, ...animalTypes, ...animalTypes].map((animal, i) => (
-            <div key={i} className="inline-flex items-center gap-8 bg-white/5 backdrop-blur-2xl border border-white/10 p-8 rounded-[3.5rem] min-w-[320px] hover:bg-white/10 transition-all group cursor-pointer hover:border-brand-500/50">
+            <div key={i} className="inline-flex items-center gap-8 bg-white/5 backdrop-blur-2xl border border-white/10 p-8 rounded-[3.5rem] min-w-[280px] snap-center hover:bg-white/10 transition-all group cursor-pointer hover:border-brand-500/50">
               <div className="text-6xl group-hover:scale-125 transition-transform duration-500">{animal.icon}</div>
               <div className="whitespace-normal">
                 <p className="text-white font-display font-bold text-xl mb-1">{animal.name}</p>
@@ -171,31 +248,49 @@ const LandingPage: React.FC<Props> = ({ onStart }) => {
           <p className="text-brand-800/40 text-xl font-medium">Simple, transparent pricing for Indian households.</p>
         </div>
         
-        <div className="grid md:grid-cols-2 gap-12 max-w-5xl mx-auto">
-          <div className="p-12 rounded-[4.5rem] border-2 border-brand-100 bg-white flex flex-col items-center hover:shadow-2xl transition-all duration-700">
-            <h3 className="text-2xl font-bold text-brand-900 mb-2 uppercase tracking-widest">Monthly Pack</h3>
-            <div className="text-6xl font-display font-black text-brand-900 mb-10">₹299<span className="text-lg font-normal opacity-30 tracking-normal">/mo</span></div>
-            <ul className="text-lg text-brand-800/60 space-y-5 mb-14 text-left w-full pl-6">
-              <li className="flex items-center gap-4"><span className="w-6 h-6 bg-brand-100 text-brand-500 rounded-full flex items-center justify-center text-xs font-bold">✓</span> Unlimited Meal Audits</li>
-              <li className="flex items-center gap-4"><span className="w-6 h-6 bg-brand-100 text-brand-500 rounded-full flex items-center justify-center text-xs font-bold">✓</span> Smart Heat Alerts</li>
-              <li className="flex items-center gap-4"><span className="w-6 h-6 bg-brand-100 text-brand-500 rounded-full flex items-center justify-center text-xs font-bold">✓</span> Basic Health Vault</li>
-            </ul>
-            <button onClick={onStart} className="w-full py-6 rounded-[2rem] border-2 border-brand-500 text-brand-500 font-bold text-xl hover:bg-brand-500 hover:text-white transition-all duration-500 active:scale-95">Select Plan</button>
-          </div>
-          
-          <div className="p-12 rounded-[4.5rem] bg-brand-900 text-white flex flex-col items-center shadow-[0_40px_100px_-15px_rgba(82,49,23,0.4)] relative overflow-hidden group">
-            <div className="absolute top-8 right-8 bg-brand-500 px-5 py-2 rounded-full text-[10px] font-black uppercase tracking-[0.2em] z-10">Best Value</div>
-            <h3 className="text-2xl font-bold mb-2 uppercase tracking-widest">Annual Pack</h3>
-            <div className="text-6xl font-display font-black mb-10">₹899<span className="text-lg font-normal opacity-30 tracking-normal">/yr</span></div>
-            <ul className="text-lg text-white/60 space-y-5 mb-14 text-left w-full pl-6">
-              <li className="flex items-center gap-4"><span className="w-6 h-6 bg-brand-500/20 text-brand-500 rounded-full flex items-center justify-center text-xs font-bold">✓</span> Everything in Monthly</li>
-              <li className="flex items-center gap-4"><span className="w-6 h-6 bg-brand-500/20 text-brand-500 rounded-full flex items-center justify-center text-xs font-bold">✓</span> 24/7 AI First-Aid Access</li>
-              <li className="flex items-center gap-4"><span className="w-6 h-6 bg-brand-500/20 text-brand-500 rounded-full flex items-center justify-center text-xs font-bold">✓</span> Cinematic Pet Studio</li>
-              <li className="flex items-center gap-4"><span className="w-6 h-6 bg-brand-500/20 text-brand-500 rounded-full flex items-center justify-center text-xs font-bold">✓</span> Personalized Health Maps</li>
-            </ul>
-            <button onClick={onStart} className="w-full py-6 rounded-[2rem] bg-brand-500 text-white font-bold text-xl hover:bg-brand-600 shadow-xl shadow-brand-500/30 transition-all duration-500 active:scale-95">Go Pro Annual</button>
-            <div className="absolute -bottom-16 -right-16 w-48 h-48 bg-white/5 rounded-full blur-3xl group-hover:scale-150 transition-transform duration-1000"></div>
-          </div>
+        <div className="grid md:grid-cols-3 gap-10 max-w-6xl mx-auto">
+          {[
+            {
+              name: "Beta",
+              price: "₹19",
+              badge: "Early Access",
+              perks: ["Daily Pet Brief", "Reminders", "Basic Checklists"]
+            },
+            {
+              name: "Pro Parent",
+              price: "₹299",
+              badge: "Popular",
+              perks: ["Safety Radar", "Nearby Services", "Community Events", "Unlimited Nutri Lens"]
+            },
+            {
+              name: "Elite Parent",
+              price: "₹399",
+              badge: "Premium",
+              perks: ["AI First-Aid", "Priority Support", "Unlimited Studio", "Advanced Insights"]
+            }
+          ].map((plan) => (
+            <div key={plan.name} className={`p-10 rounded-[3.5rem] ${plan.name === "Elite Parent" ? "bg-brand-900 text-white" : "bg-white border-2 border-brand-100"} shadow-lg relative overflow-hidden`}>
+              <div className="absolute top-6 right-6 text-[10px] font-black uppercase tracking-[0.2em] px-4 py-1 rounded-full bg-brand-500 text-white">
+                {plan.badge}
+              </div>
+              <h3 className={`text-2xl font-bold uppercase tracking-widest ${plan.name === "Elite Parent" ? "text-white" : "text-brand-900"}`}>{plan.name}</h3>
+              <div className={`text-5xl font-display font-black mt-4 ${plan.name === "Elite Parent" ? "text-white" : "text-brand-900"}`}>
+                {plan.price}
+                <span className={`text-base font-normal opacity-70 ml-2`}>/mo</span>
+              </div>
+              <ul className={`mt-8 space-y-4 text-base ${plan.name === "Elite Parent" ? "text-white/70" : "text-brand-800/60"}`}>
+                {plan.perks.map((perk) => (
+                  <li key={perk} className="flex items-center gap-3">
+                    <span className={`w-5 h-5 rounded-full flex items-center justify-center text-xs font-black ${plan.name === "Elite Parent" ? "bg-brand-500/30 text-brand-200" : "bg-brand-100 text-brand-500"}`}>✓</span>
+                    {perk}
+                  </li>
+                ))}
+              </ul>
+              <button onClick={onStart} className={`w-full mt-10 py-4 rounded-[2rem] font-black text-sm uppercase tracking-widest ${plan.name === "Elite Parent" ? "bg-brand-500 text-white" : "border-2 border-brand-500 text-brand-500 hover:bg-brand-500 hover:text-white"} transition-all`}>
+                Choose {plan.name}
+              </button>
+            </div>
+          ))}
         </div>
       </section>
 
@@ -320,6 +415,13 @@ const LandingPage: React.FC<Props> = ({ onStart }) => {
         @keyframes bounce-slow {
           0%, 100% { transform: translateY(0); }
           50% { transform: translateY(-20px); }
+        }
+        .animate-pulse-slow {
+          animation: pulse-slow 6s infinite ease-in-out;
+        }
+        @keyframes pulse-slow {
+          0%, 100% { transform: scale(1); opacity: 0.6; }
+          50% { transform: scale(1.2); opacity: 1; }
         }
       `}</style>
     </div>

@@ -3,6 +3,7 @@ export interface PetData {
   name: string;
   breed: string;
   age: string;
+  ageMonths?: string;
   weight: string;
   dietType: 'Home Cooked' | 'Kibble' | 'Mixed';
   gender: 'Male' | 'Female';
@@ -11,6 +12,17 @@ export interface PetData {
   photoUrl?: string;
   allergies: string[];
   interests: string[];
+  spayNeuterStatus?: 'Yes' | 'No' | 'Unknown';
+  vaccinationStatus?: 'Up to date' | 'Partial' | 'Not sure';
+  lastVaccineDate?: string;
+  activityBaseline?: '15-30 min' | '30-60 min' | '60+ min';
+  housingType?: 'Apartment' | 'Independent House' | 'Farm / Villa';
+  walkSurface?: 'Asphalt' | 'Grass' | 'Mixed';
+  parkAccess?: 'Yes' | 'No';
+  feedingSchedule?: 'Once' | 'Twice' | 'Thrice';
+  foodBrand?: string;
+  goals?: string[];
+  vetAccess?: 'Regular Vet' | 'Occasional' | 'None';
 }
 
 export interface NutriLensResult {
