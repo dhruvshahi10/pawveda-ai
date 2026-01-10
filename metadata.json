@@ -2,6 +2,7 @@
   "name": "PawVeda AI",
   "description": "The intelligence layer for Indian pet parents. Specialized in Indie-breed health and home-cooked nutrition audits using Gemini 3.0.",
   "requestFramePermissions": [
-    "camera"
+    "camera",
+    "geolocation"
   ]
 }

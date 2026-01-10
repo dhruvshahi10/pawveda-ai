@@ -1,15 +1,13 @@
 
 import React, { useState, useRef, useEffect, useMemo } from 'react';
-import { UserState, NutriLensResult, ActivityLog, PetData, UserCredits, NewsInsight } from '../types';
+import { ActivityLog, ChecklistHistoryPoint, ChecklistSection, DailyBrief, MicroTip, NearbyService, NutriLensResult, PetData, PetEvent, Reminder, SafetyRadar, UserCredits, UserState } from '../types';
 import { 
   analyzeNutriLens, 
   suggestActivity, 
   generatePetArt, 
-  fetchCityInsights,
-  generatePlayPlan,
-  fetchCityPetCentres,
-  PetCentre
+  generatePlayPlan
 } from '../services/geminiService';
+import { fetchDailyBrief, fetchNearbyServices, fetchPetEvents, fetchSafetyRadar, getChecklist, getMicroTips, seedChecklistHistory } from '../services/feedService';
 
 interface Props {
   user: UserState;
@@ -42,9 +40,35 @@ const Dashboard: React.FC<Props> = ({ user, setUser, onUpgrade, onLogout }) => {
   const [activeTab, setActiveTab] = useState<'home' | 'nutri' | 'play' | 'studio' | 'parent'>('home');
   const [isProcessing, setIsProcessing] = useState(false);
   const [loadingMsg, setLoadingMsg] = useState('');
-  const [cityNews, setCityNews] = useState<NewsInsight[]>([]);
-  const [petCentres, setPetCentres] = useState<PetCentre[]>([]);
+  const [microTips, setMicroTips] = useState<MicroTip[]>([]);
+  const [petEvents, setPetEvents] = useState<PetEvent[]>([]);
+  const [dailyBrief, setDailyBrief] = useState<DailyBrief | null>(null);
+  const [briefIndex, setBriefIndex] = useState(0);
+  const [safetyRadar, setSafetyRadar] = useState<SafetyRadar | null>(null);
+  const [nearbyServices, setNearbyServices] = useState<NearbyService[]>([]);
+  const [checklistSections, setChecklistSections] = useState<ChecklistSection[]>([]);
+  const [checklistState, setChecklistState] = useState<Record<string, boolean>>({});
+  const [checklistStreak, setChecklistStreak] = useState(0);
+  const [lastChecklistDate, setLastChecklistDate] = useState('');
+  const [checklistHistory, setChecklistHistory] = useState<ChecklistHistoryPoint[]>([]);
+  const [expandedFeedId, setExpandedFeedId] = useState<string | null>(null);
+  const [expandedServiceId, setExpandedServiceId] = useState<string | null>(null);
+  const [showServices, setShowServices] = useState(true);
+  const [activeParentAction, setActiveParentAction] = useState<string | null>(null);
+  const [showNotifications, setShowNotifications] = useState(false);
+  const [showPayment, setShowPayment] = useState(false);
+  const [showReminders, setShowReminders] = useState(false);
+  const [showHelpCenter, setShowHelpCenter] = useState(false);
+  const [reminders, setReminders] = useState<Reminder[]>([]);
+  const [reminderDraft, setReminderDraft] = useState<Reminder>({
+    id: '',
+    title: '',
+    date: '',
+    repeat: 'None',
+    notes: ''
+  });
   const [expandedTraining, setExpandedTraining] = useState<number | null>(null);
+  const [expandedChecklist, setExpandedChecklist] = useState<number | null>(null);
   const [dailyGame, setDailyGame] = useState<string>('');
   
   // Nutri Lens State
@@ -65,18 +89,147 @@ const Dashboard: React.FC<Props> = ({ user, setUser, onUpgrade, onLogout }) => {
 
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  const dateKey = (value: Date) => value.toISOString().slice(0, 10);
+
+  const getChecklistStorageKey = (pet?: PetData) =>
+    `pawveda_checklist_${pet?.name || 'guest'}_${pet?.city || 'city'}`;
+
+  const getReminderStorageKey = (pet?: PetData) =>
+    `pawveda_reminders_${pet?.name || 'guest'}_${pet?.city || 'city'}`;
+
+  const getChecklistIds = (sections: ChecklistSection[]) =>
+    sections.flatMap(section => section.items.map(item => item.id));
+
+  const persistChecklist = (
+    pet: PetData | undefined,
+    completed: Record<string, boolean>,
+    streak: number,
+    lastCompletedDate: string,
+    history: ChecklistHistoryPoint[]
+  ) => {
+    if (!pet) return;
+    try {
+      const payload = {
+        date: dateKey(new Date()),
+        streak,
+        lastCompletedDate,
+        completed,
+        history
+      };
+      localStorage.setItem(getChecklistStorageKey(pet), JSON.stringify(payload));
+    } catch {
+      // ignore
+    }
+  };
+
+  const mergeHistory = (
+    existing: ChecklistHistoryPoint[],
+    date: string,
+    completion: number
+  ) => {
+    const updated = [...existing];
+    const index = updated.findIndex(point => point.date === date);
+    if (index >= 0) {
+      updated[index] = { date, completion };
+    } else {
+      updated.push({ date, completion });
+    }
+    return updated.slice(-7);
+  };
+
+  const persistReminders = (pet: PetData | undefined, items: Reminder[]) => {
+    if (!pet) return;
+    try {
+      localStorage.setItem(getReminderStorageKey(pet), JSON.stringify(items));
+    } catch {
+      // ignore
+    }
+  };
+
   // Initial Data Fetch
   useEffect(() => {
     const loadData = async () => {
       if (user.pet) {
-        const [news, centres, game] = await Promise.all([
-          fetchCityInsights(user.pet.city, user.pet.breed),
-          fetchCityPetCentres(user.pet.city),
+        const sections = getChecklist(user.pet);
+        setChecklistSections(sections);
+        setMicroTips(getMicroTips(user.pet));
+        const storedKey = getChecklistStorageKey(user.pet);
+        const ids = getChecklistIds(sections);
+        const blankState = ids.reduce((acc, id) => ({ ...acc, [id]: false }), {} as Record<string, boolean>);
+        try {
+          const stored = localStorage.getItem(storedKey);
+          if (stored) {
+            const parsed = JSON.parse(stored);
+            const today = dateKey(new Date());
+            const completed =
+              parsed?.date === today && parsed?.completed
+                ? { ...blankState, ...parsed.completed }
+                : blankState;
+            setChecklistState(completed);
+            setChecklistStreak(parsed?.streak || 0);
+            setLastChecklistDate(parsed?.lastCompletedDate || "");
+            setChecklistHistory(
+              Array.isArray(parsed?.history) && parsed.history.length ? parsed.history : seedChecklistHistory()
+            );
+          } else {
+            setChecklistState(blankState);
+            setChecklistStreak(0);
+            setLastChecklistDate("");
+            setChecklistHistory(seedChecklistHistory());
+          }
+        } catch {
+          setChecklistState(blankState);
+          setChecklistStreak(0);
+          setLastChecklistDate("");
+          setChecklistHistory(seedChecklistHistory());
+        }
+
+        try {
+          const reminderStored = localStorage.getItem(getReminderStorageKey(user.pet));
+          if (reminderStored) {
+            const parsed = JSON.parse(reminderStored);
+            setReminders(Array.isArray(parsed) ? parsed : []);
+          } else {
+            setReminders([]);
+          }
+        } catch {
+          setReminders([]);
+        }
+
+        const results = await Promise.allSettled([
+          fetchPetEvents(user.pet.city),
+          fetchDailyBrief(user.pet.city),
+          fetchSafetyRadar(user.pet.city),
+          fetchNearbyServices(user.pet.city),
           generatePlayPlan(user.pet)
         ]);
-        setCityNews(news);
-        setPetCentres(centres);
-        setDailyGame(game);
+        const [eventsResult, briefResult, radarResult, servicesResult, gameResult] = results;
+        if (eventsResult.status === 'fulfilled') {
+          setPetEvents(eventsResult.value);
+        } else {
+          setPetEvents([]);
+        }
+        if (briefResult.status === 'fulfilled') {
+          setDailyBrief(briefResult.value);
+          setBriefIndex(0);
+        } else {
+          setDailyBrief(null);
+        }
+        if (radarResult.status === 'fulfilled') {
+          setSafetyRadar(radarResult.value);
+        } else {
+          setSafetyRadar(null);
+        }
+        if (servicesResult.status === 'fulfilled') {
+          setNearbyServices(servicesResult.value);
+        } else {
+          setNearbyServices([]);
+        }
+        if (gameResult.status === 'fulfilled') {
+          setDailyGame(gameResult.value);
+        } else {
+          setDailyGame('');
+        }
       }
     };
     loadData();
@@ -147,6 +300,40 @@ const Dashboard: React.FC<Props> = ({ user, setUser, onUpgrade, onLogout }) => {
     }
   };
 
+  const handleChecklistToggle = (itemId: string) => {
+    const today = dateKey(new Date());
+    const yesterday = dateKey(new Date(Date.now() - 86400000));
+    const allIds = getChecklistIds(checklistSections);
+
+    setChecklistState(prevState => {
+      const nextState = { ...prevState, [itemId]: !prevState[itemId] };
+      const completedCount = allIds.filter(id => nextState[id]).length;
+      const completion = allIds.length ? Math.round((completedCount / allIds.length) * 100) : 0;
+      const allComplete = allIds.every(id => nextState[id]);
+      let nextStreak = checklistStreak;
+      let nextLastDate = lastChecklistDate;
+      let nextHistory = checklistHistory;
+
+      if (allComplete) {
+        if (lastChecklistDate === today) {
+          nextStreak = checklistStreak;
+        } else if (lastChecklistDate === yesterday) {
+          nextStreak = checklistStreak + 1;
+        } else {
+          nextStreak = 1;
+        }
+        nextLastDate = today;
+      }
+
+      nextHistory = mergeHistory(checklistHistory, today, completion);
+      setChecklistStreak(nextStreak);
+      setLastChecklistDate(nextLastDate);
+      setChecklistHistory(nextHistory);
+      persistChecklist(user.pet, nextState, nextStreak, nextLastDate, nextHistory);
+      return nextState;
+    });
+  };
+
   const filteredActivities = useMemo(() => {
     return user.activities.filter(a => {
       const matchesType = filterType === 'All' || a.type === filterType;
@@ -163,6 +350,119 @@ const Dashboard: React.FC<Props> = ({ user, setUser, onUpgrade, onLogout }) => {
       return matchesType && matchesDate;
     });
   }, [user.activities, filterType, filterDate]);
+
+  useEffect(() => {
+    if (!dailyBrief?.items?.length) return;
+    const interval = setInterval(() => {
+      setBriefIndex(prev => (prev + 1) % dailyBrief.items.length);
+    }, 4500);
+    return () => clearInterval(interval);
+  }, [dailyBrief]);
+
+  const checklistIds = useMemo(
+    () => getChecklistIds(checklistSections),
+    [checklistSections]
+  );
+  const checklistCompletedCount = useMemo(
+    () => checklistIds.filter(id => checklistState[id]).length,
+    [checklistIds, checklistState]
+  );
+  const checklistProgress = checklistIds.length
+    ? Math.round((checklistCompletedCount / checklistIds.length) * 100)
+    : 0;
+
+  const activeBriefItem = dailyBrief?.items?.[briefIndex];
+
+  const liveFeedItems = useMemo(() => {
+    const items: Array<{ id: string; type: 'tip' | 'event' | 'radar'; title: string; detail: string; meta: string; url?: string }> = [];
+    microTips.forEach(tip => {
+      items.push({
+        id: `tip-${tip.id}`,
+        type: 'tip',
+        title: tip.title,
+        detail: tip.detail,
+        meta: tip.tags.join(" • ")
+      });
+    });
+    petEvents.forEach(event => {
+      items.push({
+        id: `event-${event.id}`,
+        type: 'event',
+        title: event.title,
+        detail: `${event.dateLabel} · ${event.venue}`,
+        meta: event.source,
+        url: event.url
+      });
+    });
+    if (safetyRadar) {
+      items.push({
+        id: 'radar-summary',
+        type: 'radar',
+        title: `${safetyRadar.city} Safety Radar`,
+        detail: `${safetyRadar.airQualityLabel} air · ${safetyRadar.safeWindow} safe window`,
+        meta: `PM2.5 ${safetyRadar.pm25 ?? '—'}`
+      });
+    }
+    const hydrated = items.length ? items : [{
+      id: 'feed-wait',
+      type: 'tip' as const,
+      title: 'Calibrating Local Feed',
+      detail: 'Syncing verified insights for your city.',
+      meta: 'Live Sync'
+    }];
+    return hydrated.length < 8 ? [...hydrated, ...hydrated] : hydrated;
+  }, [microTips, petEvents, safetyRadar]);
+
+  const upcomingReminders = useMemo(() => {
+    const today = dateKey(new Date());
+    return reminders
+      .filter(item => item.date >= today)
+      .sort((a, b) => a.date.localeCompare(b.date))
+      .slice(0, 5);
+  }, [reminders]);
+
+  const notifications = useMemo(() => {
+    const items = [
+      ...upcomingReminders.map(reminder => ({
+        id: `reminder-${reminder.id}`,
+        title: reminder.title,
+        detail: `Reminder · ${reminder.date}`,
+        type: 'reminder'
+      })),
+      ...petEvents.slice(0, 3).map(event => ({
+        id: `event-${event.id}`,
+        title: event.title,
+        detail: `${event.dateLabel} · ${event.venue}`,
+        type: 'event'
+      }))
+    ];
+    return items;
+  }, [upcomingReminders, petEvents]);
+
+  const handleReminderSave = () => {
+    if (!reminderDraft.title || !reminderDraft.date) return;
+    const entry = {
+      ...reminderDraft,
+      id: reminderDraft.id || `${Date.now()}`
+    };
+    const next = reminderDraft.id
+      ? reminders.map(item => (item.id === entry.id ? entry : item))
+      : [entry, ...reminders];
+    setReminders(next);
+    persistReminders(user.pet, next);
+    setReminderDraft({ id: '', title: '', date: '', repeat: 'None', notes: '' });
+  };
+
+  const handleReminderEdit = (reminder: Reminder) => {
+    setReminderDraft(reminder);
+    setShowReminders(true);
+  };
+
+  const handleReminderDelete = (reminderId: string) => {
+    const next = reminders.filter(item => item.id !== reminderId);
+    setReminders(next);
+    persistReminders(user.pet, next);
+  };
 
   const handleGenerateArt = async () => {
     if (!studioPrompt) return;
@@ -217,12 +517,31 @@ const Dashboard: React.FC<Props> = ({ user, setUser, onUpgrade, onLogout }) => {
           </div>
         </div>
         <div className="flex gap-4">
-          {!user.isPremium && <button onClick={onUpgrade} className="bg-brand-900 text-white px-6 py-3 rounded-2xl text-[10px] font-black uppercase tracking-widest shadow-xl hover:bg-brand-500 transition-all active:scale-95">Upgrade</button>}
+          <button
+            onClick={() => setShowNotifications(!showNotifications)}
+            className="relative w-12 h-12 rounded-2xl bg-brand-50 flex items-center justify-center shadow-sm hover:shadow-md transition-all"
+            aria-label="Notifications"
+          >
+            <span className="text-lg">🔔</span>
+            {notifications.length > 0 && (
+              <span className="absolute -top-1 -right-1 w-4 h-4 bg-brand-500 text-white text-[8px] font-black rounded-full flex items-center justify-center">
+                {notifications.length}
+              </span>
+            )}
+          </button>
+          {!user.isPremium && (
+            <button
+              onClick={() => setShowPayment(true)}
+              className="bg-brand-900 text-white px-6 py-3 rounded-2xl text-[10px] font-black uppercase tracking-widest shadow-xl hover:bg-brand-500 transition-all active:scale-95"
+            >
+              Upgrade
+            </button>
+          )}
         </div>
       </header>
 
       <main className="max-w-3xl mx-auto p-6 pt-12">
-        
+
         {/* INTELLIGENCE FEED */}
         {activeTab === 'home' && (
           <div className="space-y-12 animate-reveal">
@@ -235,15 +554,28 @@ const Dashboard: React.FC<Props> = ({ user, setUser, onUpgrade, onLogout }) => {
               <div className="bg-brand-900 p-10 rounded-[4rem] text-white shadow-2xl relative overflow-hidden group">
                 <div className="relative z-10 space-y-4">
                   <div className="flex items-center gap-3">
-                    <span className="bg-brand-500 px-3 py-1 rounded-full text-[9px] font-black uppercase tracking-widest">Climate Shield</span>
+                    <span className="bg-brand-500 px-3 py-1 rounded-full text-[9px] font-black uppercase tracking-widest">{activeBriefItem?.badge || "Daily Brief"}</span>
                     <span className="text-white/40 text-[9px] font-bold uppercase tracking-widest">Live Sync</span>
                   </div>
-                  <h3 className="text-3xl font-display font-black tracking-tight">{user.pet?.city} Walking Index</h3>
+                  <h3 className="text-3xl font-display font-black tracking-tight">
+                    {activeBriefItem?.title || `${user.pet?.city} Walking Index`}
+                  </h3>
+                  <p className="text-white/80 text-2xl font-display font-black">{activeBriefItem?.value || "—"}</p>
                   <p className="text-white/70 text-lg font-light leading-relaxed italic">
-                    "Surface heat in {user.pet?.city} is currently high. For {user.pet?.name}, we recommend shaded walks only between 6 AM - 8 AM."
+                    "{activeBriefItem?.detail || `Personalized guidance for ${user.pet?.name} is syncing...`}"
                   </p>
                 </div>
-                <div className="absolute -right-10 -bottom-10 text-[12rem] opacity-[0.05] rotate-12 group-hover:rotate-0 transition-transform duration-[3s]">🌡️</div>
+                <div className="absolute -right-10 -bottom-10 text-[12rem] opacity-[0.05] rotate-12 group-hover:rotate-0 transition-transform duration-[3s]">
+                  {activeBriefItem?.icon || "🌡️"}
+                </div>
+                <div className="absolute bottom-8 left-10 flex gap-2">
+                  {dailyBrief?.items?.map((item, index) => (
+                    <span
+                      key={item.id}
+                      className={`h-2 w-2 rounded-full transition-all ${index === briefIndex ? 'bg-brand-500' : 'bg-white/30'}`}
+                    />
+                  ))}
+                </div>
               </div>
 
               {user.pet?.dietType === 'Home Cooked' && (
@@ -263,28 +595,176 @@ const Dashboard: React.FC<Props> = ({ user, setUser, onUpgrade, onLogout }) => {
               )}
             </div>
 
-            {/* NEW: GENUINE PET CARE CENTRES CAROUSEL */}
+            <div className="bg-white p-8 rounded-[3rem] border border-brand-50 shadow-sm space-y-4">
+              <div className="flex items-center justify-between">
+                <h3 className="text-xl font-display font-black text-brand-900">Upcoming Reminders</h3>
+                <button
+                  onClick={() => setShowReminders(true)}
+                  className="text-[10px] font-black uppercase tracking-widest text-brand-500 underline underline-offset-4"
+                >
+                  Manage Reminders
+                </button>
+              </div>
+              {upcomingReminders.length > 0 ? (
+                <div className="space-y-3">
+                  {upcomingReminders.map(reminder => (
+                    <div key={reminder.id} className="bg-brand-50/60 p-4 rounded-2xl flex items-center justify-between">
+                      <div>
+                        <p className="text-sm font-display font-black text-brand-900">{reminder.title}</p>
+                        <p className="text-[10px] font-bold uppercase tracking-widest text-brand-400">{reminder.date} · {reminder.repeat}</p>
+                      </div>
+                      <button onClick={() => handleReminderEdit(reminder)} className="text-[9px] font-black uppercase tracking-widest text-brand-500">Edit</button>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <p className="text-sm text-brand-800/50 font-medium italic">No reminders yet. Add your first care alert.</p>
+              )}
+            </div>
+
+            {/* LIVE INTELLIGENCE FEED */}
             <div className="space-y-6">
               <div className="flex items-center justify-between">
-                <h3 className="text-2xl font-display font-black text-brand-900 tracking-tight">Care Centres in {user.pet?.city}</h3>
-                <span className="text-[10px] font-bold text-brand-300 uppercase tracking-widest">Genuine Registry</span>
+                <h3 className="text-2xl font-display font-black text-brand-900 tracking-tight">Live Intelligence Feed</h3>
+                <span className="text-[10px] font-bold text-brand-300 uppercase tracking-widest">Updated Today</span>
+              </div>
+              <div className="bg-white p-8 rounded-[3rem] border border-brand-50 shadow-sm">
+                <div className="flex items-center gap-3 mb-6">
+                  <span className="bg-brand-100 text-brand-700 px-3 py-1 rounded-full text-[9px] font-black uppercase tracking-widest">Hybrid Feed</span>
+                  <span className="text-[9px] font-bold text-brand-300 uppercase tracking-widest">Vet + Community</span>
+                </div>
+                <div className="max-h-[520px] overflow-y-auto pr-2 space-y-4 live-feed-scroll">
+                  {liveFeedItems.map(item => (
+                    <div key={item.id} className="bg-brand-50/40 p-4 rounded-2xl">
+                      <button
+                        onClick={() => setExpandedFeedId(expandedFeedId === item.id ? null : item.id)}
+                        className="w-full text-left"
+                      >
+                        <div className="flex items-center justify-between mb-2">
+                          <span className="text-[8px] font-black uppercase tracking-widest text-brand-500">
+                            {item.type === 'tip' ? 'Vet Verified' : item.type === 'event' ? 'Community' : 'Safety Radar'}
+                          </span>
+                          <span className="text-[8px] font-bold uppercase tracking-widest text-brand-300">{item.meta}</span>
+                        </div>
+                        <h4 className="text-sm font-display font-black text-brand-900 mb-1">{item.title}</h4>
+                        <p className="text-xs text-brand-800/70 font-medium italic">"{item.detail}"</p>
+                      </button>
+                      {expandedFeedId === item.id && (
+                        <div className="mt-3 bg-white/70 p-3 rounded-xl border border-brand-100 space-y-2">
+                          <p className="text-[10px] text-brand-800/70 font-medium">
+                            {item.type === 'event'
+                              ? "Tap below to view the event details or share with a pet parent."
+                              : item.type === 'radar'
+                              ? "Use this safety snapshot to plan walks and hydration today."
+                              : "Save this tip and build a healthier routine."}
+                          </p>
+                          <div className="flex items-center gap-3">
+                            {item.url && (
+                              <a href={item.url} target="_blank" className="text-[9px] font-black text-brand-900 underline underline-offset-4">
+                                View Details ↗
+                              </a>
+                            )}
+                            <button
+                              onClick={() => setExpandedFeedId(null)}
+                              className="text-[9px] font-black text-brand-500 uppercase tracking-widest"
+                            >
+                              Minimize
+                            </button>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            {/* LOCAL SAFETY RADAR + NEARBY SERVICES */}
+            <div className="space-y-6">
+              <div className="flex items-center justify-between">
+                <div className="space-y-1">
+                  <h3 className="text-2xl font-display font-black text-brand-900 tracking-tight">Local Safety Radar & Nearby Services</h3>
+                  <button
+                    onClick={() => setShowServices(!showServices)}
+                    className="text-[10px] font-black uppercase tracking-widest text-brand-500 underline decoration-brand-100 underline-offset-4"
+                  >
+                    {showServices ? "Collapse Nearby Services" : "Expand Nearby Services"}
+                  </button>
+                </div>
+                <span className="text-[10px] font-bold text-brand-300 uppercase tracking-widest">City Intel</span>
               </div>
               <div className="flex gap-6 overflow-x-auto pb-6 snap-x scrollbar-hide">
-                {petCentres.length > 0 ? petCentres.map((centre, i) => (
-                  <div key={i} className="min-w-[280px] snap-center bg-white p-8 rounded-[3rem] border border-brand-50 shadow-sm hover:shadow-xl transition-all duration-500">
-                    <span className="bg-brand-100 text-brand-700 px-3 py-1 rounded-full text-[8px] font-black uppercase tracking-widest mb-4 inline-block">{centre.type}</span>
-                    <h4 className="text-lg font-display font-black text-brand-900 mb-2">{centre.name}</h4>
-                    <p className="text-brand-800/50 text-[10px] font-medium mb-4 italic">{centre.address}</p>
-                    <div className="flex items-center justify-between mt-auto">
-                      <span className="text-brand-500 font-bold text-xs">⭐ {centre.rating}</span>
-                      <a href={centre.link} target="_blank" className="text-[9px] font-black text-brand-900 underline underline-offset-4">Visit Node ↗</a>
+                <div className="min-w-[320px] snap-center bg-white p-8 rounded-[3rem] border border-brand-50 shadow-sm hover:shadow-xl transition-all duration-500">
+                  <span className="bg-brand-100 text-brand-700 px-3 py-1 rounded-full text-[8px] font-black uppercase tracking-widest mb-4 inline-block">Safety Radar</span>
+                  <h4 className="text-lg font-display font-black text-brand-900 mb-2">{user.pet?.city} Air + Weather</h4>
+                  <p className="text-brand-800/50 text-[10px] font-medium mb-4 italic">Updated today</p>
+                  <div className="space-y-3">
+                    <div className="flex items-center justify-between">
+                      <span className="text-[10px] font-bold uppercase tracking-widest text-brand-400">Air Quality</span>
+                      <span className="text-xs font-black text-brand-900">{safetyRadar?.airQualityLabel || "Loading..."}</span>
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <span className="text-[10px] font-bold uppercase tracking-widest text-brand-400">Status</span>
+                      <span className="text-xs font-black text-brand-900">{safetyRadar?.status || "—"}</span>
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <span className="text-[10px] font-bold uppercase tracking-widest text-brand-400">Temp</span>
+                      <span className="text-xs font-black text-brand-900">
+                        {safetyRadar?.temperature !== undefined && safetyRadar?.temperature !== null ? `${safetyRadar.temperature}°C` : "—"}
+                      </span>
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <span className="text-[10px] font-bold uppercase tracking-widest text-brand-400">Humidity</span>
+                      <span className="text-xs font-black text-brand-900">
+                        {safetyRadar?.humidity !== undefined && safetyRadar?.humidity !== null ? `${safetyRadar.humidity}%` : "—"}
+                      </span>
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <span className="text-[10px] font-bold uppercase tracking-widest text-brand-400">PM2.5</span>
+                      <span className="text-xs font-black text-brand-900">{safetyRadar?.pm25 ?? "—"}</span>
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <span className="text-[10px] font-bold uppercase tracking-widest text-brand-400">Safe Window</span>
+                      <span className="text-xs font-black text-brand-900">{safetyRadar?.safeWindow || "—"}</span>
                     </div>
                   </div>
-                )) : (
-                  <div className="min-w-full bg-brand-50 p-10 rounded-[3rem] flex items-center justify-center animate-pulse">
-                    <p className="text-brand-800/20 font-display font-black text-sm italic">Fetching Local Care Centres...</p>
+                  <p className="text-brand-800/60 text-xs font-medium italic mt-4">"{safetyRadar?.advisory || "Calibrating local conditions..."}"</p>
+                </div>
+
+                {showServices && nearbyServices.length > 0 ? nearbyServices.map((service, i) => (
+                  <div key={service.id || i} className="min-w-[280px] snap-center bg-white p-8 rounded-[3rem] border border-brand-50 shadow-sm hover:shadow-xl transition-all duration-500">
+                    <button
+                      onClick={() => setExpandedServiceId(expandedServiceId === service.id ? null : service.id)}
+                      className="w-full text-left"
+                    >
+                      <span className="bg-brand-100 text-brand-700 px-3 py-1 rounded-full text-[8px] font-black uppercase tracking-widest mb-4 inline-block">{service.type}</span>
+                      <h4 className="text-lg font-display font-black text-brand-900 mb-2">{service.name}</h4>
+                      <p className="text-brand-800/60 text-[10px] font-bold uppercase tracking-widest mb-2">{service.locality || user.pet?.city}</p>
+                      <p className="text-brand-800/50 text-[10px] font-medium mb-4 italic">{service.address}</p>
+                    </button>
+                    <div className="flex items-center justify-between mt-auto">
+                      <span className="text-brand-500 font-bold text-xs">{service.source || "Verified"}</span>
+                      <a href={service.googleMapsLink || service.link} target="_blank" className="text-[9px] font-black text-brand-900 underline underline-offset-4">Open in Maps ↗</a>
+                    </div>
+                    {expandedServiceId === service.id && (
+                      <div className="mt-4 bg-brand-50/60 p-3 rounded-2xl border border-brand-100">
+                        <p className="text-[10px] font-medium text-brand-800/70">
+                          "Tap Open in Maps to confirm hours, reviews, and directions."
+                        </p>
+                        <button
+                          onClick={() => setExpandedServiceId(null)}
+                          className="text-[9px] font-black text-brand-500 uppercase tracking-widest mt-2"
+                        >
+                          Minimize
+                        </button>
+                      </div>
+                    )}
                   </div>
-                )}
+                )) : showServices ? (
+                  <div className="min-w-[280px] snap-center bg-brand-50 p-8 rounded-[3rem] flex items-center justify-center animate-pulse">
+                    <p className="text-brand-800/20 font-display font-black text-sm italic">Scanning Nearby Services...</p>
+                  </div>
+                ) : null}
               </div>
             </div>
 
@@ -312,24 +792,58 @@ const Dashboard: React.FC<Props> = ({ user, setUser, onUpgrade, onLogout }) => {
               </div>
             </div>
 
-            <div className="space-y-6">
+            <div className="bg-brand-50 p-10 rounded-[4rem] border border-brand-100 space-y-8">
               <div className="flex items-center justify-between">
-                <h3 className="text-2xl font-display font-black text-brand-900 tracking-tight">Local Alerts: {user.pet?.city}</h3>
-                <span className="text-[10px] font-bold text-brand-300 uppercase tracking-widest">Grounded Fetching</span>
+                <div className="space-y-2">
+                  <h3 className="text-2xl font-display font-black text-brand-900 tracking-tight">Pet Care Checklist</h3>
+                  <p className="text-brand-800/40 text-sm font-medium">Daily habits for long-term health.</p>
+                </div>
+                <div className="text-right">
+                  <p className="text-[10px] font-black uppercase tracking-widest text-brand-500">Streak</p>
+                  <p className="text-xl font-display font-black text-brand-900">{checklistStreak} days</p>
+                </div>
               </div>
-              <div className="flex gap-6 overflow-x-auto pb-6 snap-x scrollbar-hide">
-                {cityNews.length > 0 ? cityNews.map((news, i) => (
-                  <div key={i} className="min-w-[320px] snap-center bg-white p-10 rounded-[3.5rem] border border-brand-50 relative overflow-hidden group shadow-sm hover:shadow-2xl transition-all duration-500">
-                    <span className="text-brand-500 text-[9px] font-black uppercase tracking-[0.3em] mb-4 block">{news.source}</span>
-                    <h4 className="text-xl font-display font-black mb-4 leading-tight text-brand-900 group-hover:text-brand-500 transition-colors">{news.title}</h4>
-                    <p className="text-brand-800/50 text-sm font-medium mb-6 line-clamp-3 leading-relaxed italic">"{news.snippet}"</p>
-                    <a href={news.url} target="_blank" className="text-[10px] font-black text-brand-900 underline underline-offset-8 decoration-brand-200">View Source ↗</a>
+
+              <div className="bg-white rounded-[2.5rem] p-6 border border-brand-50">
+                <div className="flex items-center justify-between mb-3">
+                  <span className="text-[10px] font-black uppercase tracking-widest text-brand-500">Progress</span>
+                  <span className="text-xs font-bold text-brand-900">{checklistCompletedCount}/{checklistIds.length}</span>
+                </div>
+                <div className="w-full h-2 bg-brand-100 rounded-full overflow-hidden">
+                  <div
+                    className="h-full bg-brand-500 transition-all"
+                    style={{ width: `${checklistProgress}%` }}
+                  />
+                </div>
+              </div>
+
+              <div className="space-y-4">
+                {checklistSections.map((section, index) => (
+                  <div key={section.id} className="bg-white rounded-[2rem] border border-brand-50 shadow-sm overflow-hidden">
+                    <button 
+                      onClick={() => setExpandedChecklist(expandedChecklist === index ? null : index)}
+                      className="w-full px-8 py-5 flex items-center justify-between text-left group"
+                    >
+                      <span className="font-display font-black text-brand-900">{section.title}</span>
+                      <span className={`transition-transform duration-300 ${expandedChecklist === index ? 'rotate-180' : ''}`}>▼</span>
+                    </button>
+                    <div className={`transition-all duration-500 ease-in-out ${expandedChecklist === index ? 'max-h-[22rem] opacity-100 px-8 pb-8' : 'max-h-0 opacity-0 px-8 pb-0 overflow-hidden'}`}>
+                      <div className="space-y-3">
+                        {section.items.map(item => (
+                          <label key={item.id} className="flex items-center gap-3 text-sm text-brand-800 font-medium">
+                            <input
+                              type="checkbox"
+                              checked={!!checklistState[item.id]}
+                              onChange={() => handleChecklistToggle(item.id)}
+                              className="accent-brand-500 w-4 h-4"
+                            />
+                            <span>{item.label}</span>
+                          </label>
+                        ))}
+                      </div>
+                    </div>
                   </div>
-                )) : (
-                  <div className="min-w-full bg-brand-50 p-20 rounded-[4rem] flex items-center justify-center animate-pulse">
-                    <p className="text-brand-800/20 font-display font-black text-xl italic">Calibrating City Node...</p>
-                  </div>
-                )}
+                ))}
               </div>
             </div>
 
@@ -410,7 +924,7 @@ const Dashboard: React.FC<Props> = ({ user, setUser, onUpgrade, onLogout }) => {
           <div className="space-y-16 animate-reveal">
             <div className="flex justify-between items-end">
               <div className="space-y-2">
-                <h2 className="text-5xl font-display font-black text-brand-900 leading-none">Activity</h2>
+                <h2 className="text-5xl font-display font-black text-brand-900 leading-none">Play</h2>
                 <p className="text-brand-800/40 text-lg font-medium italic">Movement logs for {user.pet?.name}.</p>
               </div>
               {!showLogForm && (
@@ -595,6 +1109,113 @@ const Dashboard: React.FC<Props> = ({ user, setUser, onUpgrade, onLogout }) => {
                 </div>
               ))}
             </div>
+
+            <div className="bg-white rounded-[4.5rem] border border-brand-50 p-12 space-y-8 shadow-sm">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h3 className="text-2xl font-display font-black text-brand-900">Care Momentum</h3>
+                  <p className="text-brand-800/40 text-sm font-medium">Weekly checklist consistency.</p>
+                </div>
+                <div className="text-right">
+                  <p className="text-[10px] font-black uppercase tracking-widest text-brand-500">Current Streak</p>
+                  <p className="text-2xl font-display font-black text-brand-900">{checklistStreak} days</p>
+                </div>
+              </div>
+              <div className="grid grid-cols-7 gap-3">
+                {checklistHistory.map(point => (
+                  <div key={point.date} className="flex flex-col items-center gap-2">
+                    <div className="w-full h-20 bg-brand-50 rounded-2xl flex items-end">
+                      <div
+                        className="w-full bg-brand-500 rounded-2xl transition-all"
+                        style={{ height: `${Math.max(point.completion, 5)}%` }}
+                      />
+                    </div>
+                    <span className="text-[8px] font-bold text-brand-400 uppercase tracking-widest">
+                      {point.date.slice(5)}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <div className="bg-white rounded-[4.5rem] border border-brand-50 p-12 space-y-8 shadow-sm">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h3 className="text-2xl font-display font-black text-brand-900">Parent Actions</h3>
+                  <p className="text-brand-800/40 text-sm font-medium">Quick access to essential care.</p>
+                </div>
+                <span className="text-[10px] font-black text-brand-300 uppercase tracking-widest">Premium Ready</span>
+              </div>
+                <div className="grid grid-cols-2 gap-4">
+                  {[
+                    { label: "Contact a Vet", sub: "Call or chat", icon: "📞" },
+                    { label: "Book Consultation", sub: "Video or clinic", icon: "🩺" },
+                    { label: "Emergency Help", sub: "24/7 guidance", icon: "🚨" },
+                    { label: "Upload Records", sub: "Store reports", icon: "📄" }
+                  ].map(action => (
+                    <button
+                      key={action.label}
+                      onClick={() => setActiveParentAction(activeParentAction === action.label ? null : action.label)}
+                      className="bg-brand-50 p-6 rounded-[2rem] text-left hover:shadow-lg transition-all border border-brand-100"
+                    >
+                      <div className="text-2xl mb-3">{action.icon}</div>
+                      <p className="text-sm font-display font-black text-brand-900">{action.label}</p>
+                      <p className="text-[10px] font-bold uppercase tracking-widest text-brand-400">{action.sub}</p>
+                    </button>
+                  ))}
+                </div>
+
+                <div className="flex items-center justify-between">
+                  <button
+                    onClick={() => setShowReminders(true)}
+                    className="text-[10px] font-black uppercase tracking-widest text-brand-500 underline underline-offset-4"
+                  >
+                    View All Reminders
+                  </button>
+                  <button
+                    onClick={() => setShowHelpCenter(true)}
+                    className="text-[10px] font-black uppercase tracking-widest text-brand-500 underline underline-offset-4"
+                  >
+                    Help Center
+                  </button>
+                </div>
+
+              {activeParentAction && (
+                <div className="bg-brand-50/70 border border-brand-100 p-6 rounded-[2.5rem] space-y-4">
+                  <div className="flex items-center justify-between">
+                    <h4 className="text-lg font-display font-black text-brand-900">{activeParentAction}</h4>
+                    <button onClick={() => setActiveParentAction(null)} className="text-[10px] font-black uppercase tracking-widest text-brand-500">Minimize</button>
+                  </div>
+                  <div className="grid md:grid-cols-2 gap-4">
+                    <div className="bg-white p-4 rounded-2xl border border-brand-100">
+                      <p className="text-[10px] font-black uppercase tracking-widest text-brand-400 mb-2">Step 1</p>
+                      <p className="text-sm text-brand-800/70 font-medium">Pick a preferred mode and urgency level.</p>
+                    </div>
+                    <div className="bg-white p-4 rounded-2xl border border-brand-100">
+                      <p className="text-[10px] font-black uppercase tracking-widest text-brand-400 mb-2">Step 2</p>
+                      <p className="text-sm text-brand-800/70 font-medium">Share symptoms or needs for faster triage.</p>
+                    </div>
+                  </div>
+                  <div className="flex flex-wrap gap-3">
+                    {["Call", "Chat", "Video", "Clinic Visit"].map(mode => (
+                      <button key={mode} className="bg-white px-4 py-2 rounded-full text-[10px] font-black uppercase tracking-widest text-brand-700 border border-brand-100">
+                        {mode}
+                      </button>
+                    ))}
+                  </div>
+                  <textarea
+                    placeholder="Describe the concern or upload a note. (Saved to your care history once Supabase is connected.)"
+                    className="w-full bg-white p-4 rounded-2xl border border-brand-100 text-xs font-medium h-24 resize-none"
+                  />
+                  <div className="flex items-center justify-between">
+                    <p className="text-[10px] font-bold uppercase tracking-widest text-brand-400">Next: Connect to Supabase for scheduling</p>
+                    <button className="bg-brand-900 text-white px-6 py-3 rounded-full text-[10px] font-black uppercase tracking-widest">
+                      Queue Request
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
             <div className="bg-white rounded-[4.5rem] border border-brand-50 p-16 space-y-12 shadow-sm">
               <div className="flex items-center justify-between border-b border-brand-50 pb-10">
                 <h3 className="text-3xl font-display font-black text-brand-900">Pet Registry</h3>
@@ -620,7 +1241,7 @@ const Dashboard: React.FC<Props> = ({ user, setUser, onUpgrade, onLogout }) => {
         {[
           { id: 'home' as const, label: 'Feed', icon: '🐾' },
           { id: 'nutri' as const, label: 'Lens', icon: '🥗' },
-          { id: 'play' as const, label: 'Activity', icon: '🏃‍♂️' },
+          { id: 'play' as const, label: 'Play', icon: '🏃‍♂️' },
           { id: 'studio' as const, label: 'Studio', icon: '✨' },
           { id: 'parent' as const, label: 'Parent', icon: '🦴' }
         ].map(tab => (
@@ -630,6 +1251,155 @@ const Dashboard: React.FC<Props> = ({ user, setUser, onUpgrade, onLogout }) => {
           </button>
         ))}
       </nav>
+
+      {showNotifications && (
+        <div className="fixed top-24 right-6 z-[120] w-[320px] bg-white border border-brand-50 rounded-[2rem] shadow-2xl p-6">
+          <div className="flex items-center justify-between mb-4">
+            <h4 className="text-lg font-display font-black text-brand-900">Notifications</h4>
+            <button onClick={() => setShowNotifications(false)} className="text-[10px] font-black uppercase tracking-widest text-brand-500">Close</button>
+          </div>
+          {notifications.length > 0 ? (
+            <div className="space-y-3 max-h-[320px] overflow-y-auto pr-2">
+              {notifications.map(item => (
+                <div key={item.id} className="bg-brand-50/70 p-4 rounded-2xl">
+                  <p className="text-sm font-display font-black text-brand-900">{item.title}</p>
+                  <p className="text-[10px] text-brand-800/60 font-bold uppercase tracking-widest">{item.detail}</p>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <p className="text-sm text-brand-800/50 font-medium italic">No new notifications.</p>
+          )}
+        </div>
+      )}
+
+      {showPayment && (
+        <div className="fixed inset-0 z-[130] bg-brand-900/50 backdrop-blur-sm flex items-center justify-center p-6">
+          <div className="bg-white rounded-[3rem] p-8 max-w-lg w-full space-y-6 shadow-2xl">
+            <div className="flex items-center justify-between">
+              <h3 className="text-2xl font-display font-black text-brand-900">Upgrade to Pawveda Plus</h3>
+              <button onClick={() => setShowPayment(false)} className="text-[10px] font-black uppercase tracking-widest text-brand-500">Close</button>
+            </div>
+            <div className="space-y-4">
+              {[
+                { label: "Monthly", price: "₹399/mo", desc: "Daily intelligence + unlimited scans" },
+                { label: "Annual", price: "₹3,499/yr", desc: "Save 25% + premium support" }
+              ].map(plan => (
+                <div key={plan.label} className="border border-brand-100 rounded-[2rem] p-5 flex items-center justify-between">
+                  <div>
+                    <p className="text-sm font-display font-black text-brand-900">{plan.label}</p>
+                    <p className="text-[10px] font-bold uppercase tracking-widest text-brand-400">{plan.desc}</p>
+                  </div>
+                  <span className="text-sm font-black text-brand-900">{plan.price}</span>
+                </div>
+              ))}
+            </div>
+            <div className="bg-brand-50/70 p-4 rounded-2xl text-xs text-brand-800/70">
+              Powered by Razorpay. You’ll be redirected to a secure checkout.
+            </div>
+            <button
+              onClick={() => {
+                onUpgrade();
+                setShowPayment(false);
+              }}
+              className="w-full bg-brand-900 text-white py-4 rounded-[2rem] font-black text-sm uppercase tracking-widest shadow-lg hover:bg-brand-500 transition-all"
+            >
+              Continue to Razorpay
+            </button>
+          </div>
+        </div>
+      )}
+
+      {showReminders && (
+        <div className="fixed inset-0 z-[130] bg-brand-900/50 backdrop-blur-sm flex items-center justify-center p-6">
+          <div className="bg-white rounded-[3rem] p-8 max-w-lg w-full space-y-6 shadow-2xl">
+            <div className="flex items-center justify-between">
+              <h3 className="text-2xl font-display font-black text-brand-900">Reminders</h3>
+              <button onClick={() => setShowReminders(false)} className="text-[10px] font-black uppercase tracking-widest text-brand-500">Close</button>
+            </div>
+            <div className="space-y-4">
+              <input
+                value={reminderDraft.title}
+                onChange={e => setReminderDraft({ ...reminderDraft, title: e.target.value })}
+                placeholder="Reminder title"
+                className="w-full bg-brand-50/60 border border-brand-100 rounded-2xl px-4 py-3 text-sm"
+              />
+              <div className="grid grid-cols-2 gap-3">
+                <input
+                  type="date"
+                  value={reminderDraft.date}
+                  onChange={e => setReminderDraft({ ...reminderDraft, date: e.target.value })}
+                  className="w-full bg-brand-50/60 border border-brand-100 rounded-2xl px-4 py-3 text-sm"
+                />
+                <select
+                  value={reminderDraft.repeat}
+                  onChange={e => setReminderDraft({ ...reminderDraft, repeat: e.target.value as Reminder['repeat'] })}
+                  className="w-full bg-brand-50/60 border border-brand-100 rounded-2xl px-4 py-3 text-sm"
+                >
+                  <option value="None">No Repeat</option>
+                  <option value="Weekly">Weekly</option>
+                  <option value="Monthly">Monthly</option>
+                  <option value="Quarterly">Quarterly</option>
+                </select>
+              </div>
+              <textarea
+                value={reminderDraft.notes}
+                onChange={e => setReminderDraft({ ...reminderDraft, notes: e.target.value })}
+                placeholder="Notes (optional)"
+                className="w-full bg-brand-50/60 border border-brand-100 rounded-2xl px-4 py-3 text-sm h-24 resize-none"
+              />
+              <button onClick={handleReminderSave} className="w-full bg-brand-900 text-white py-3 rounded-2xl font-black text-[10px] uppercase tracking-widest">
+                {reminderDraft.id ? "Update Reminder" : "Add Reminder"}
+              </button>
+            </div>
+            <div className="space-y-3 max-h-[240px] overflow-y-auto pr-2">
+              {reminders.length > 0 ? reminders.map(reminder => (
+                <div key={reminder.id} className="bg-brand-50/70 p-4 rounded-2xl flex items-center justify-between">
+                  <div>
+                    <p className="text-sm font-display font-black text-brand-900">{reminder.title}</p>
+                    <p className="text-[10px] font-bold uppercase tracking-widest text-brand-400">{reminder.date} · {reminder.repeat}</p>
+                  </div>
+                  <div className="flex gap-2">
+                    <button onClick={() => handleReminderEdit(reminder)} className="text-[9px] font-black uppercase tracking-widest text-brand-500">Edit</button>
+                    <button onClick={() => handleReminderDelete(reminder.id)} className="text-[9px] font-black uppercase tracking-widest text-red-400">Delete</button>
+                  </div>
+                </div>
+              )) : (
+                <p className="text-sm text-brand-800/50 font-medium italic">No reminders yet.</p>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showHelpCenter && (
+        <div className="fixed inset-0 z-[130] bg-brand-900/50 backdrop-blur-sm flex items-center justify-center p-6">
+          <div className="bg-white rounded-[3rem] p-8 max-w-lg w-full space-y-6 shadow-2xl">
+            <div className="flex items-center justify-between">
+              <h3 className="text-2xl font-display font-black text-brand-900">Help Center</h3>
+              <button onClick={() => setShowHelpCenter(false)} className="text-[10px] font-black uppercase tracking-widest text-brand-500">Close</button>
+            </div>
+            <div className="space-y-3">
+              {[
+                { q: "How do I update my pet profile?", a: "Go to Parent Dashboard and edit your pet registry once Supabase is connected." },
+                { q: "How are care centres verified?", a: "We surface nearby services via maps and ask you to confirm hours before visiting." },
+                { q: "How do reminders work?", a: "Set a date and repeat cycle; reminders appear in your feed and notifications." }
+              ].map(item => (
+                <div key={item.q} className="bg-brand-50/70 p-4 rounded-2xl">
+                  <p className="text-sm font-display font-black text-brand-900">{item.q}</p>
+                  <p className="text-xs text-brand-800/60 font-medium">{item.a}</p>
+                </div>
+              ))}
+            </div>
+            <div className="bg-brand-50/70 p-4 rounded-2xl space-y-3">
+              <p className="text-sm font-display font-black text-brand-900">Contact Support</p>
+              <input placeholder="Email" className="w-full bg-white border border-brand-100 rounded-2xl px-4 py-3 text-sm" />
+              <textarea placeholder="Describe your issue" className="w-full bg-white border border-brand-100 rounded-2xl px-4 py-3 text-sm h-24 resize-none" />
+              <button className="w-full bg-brand-900 text-white py-3 rounded-2xl font-black text-[10px] uppercase tracking-widest">Submit Ticket</button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Global Processing Overlay */}
       {isProcessing && (
@@ -651,6 +1421,9 @@ const Dashboard: React.FC<Props> = ({ user, setUser, onUpgrade, onLogout }) => {
 
         .scrollbar-hide::-webkit-scrollbar { display: none; }
         .scrollbar-hide { -ms-overflow-style: none; scrollbar-width: none; }
+        .live-feed-scroll::-webkit-scrollbar { width: 6px; }
+        .live-feed-scroll::-webkit-scrollbar-thumb { background: rgba(150, 115, 88, 0.3); border-radius: 999px; }
+        .live-feed-scroll { scrollbar-width: thin; scrollbar-color: rgba(150, 115, 88, 0.3) transparent; }
       `}</style>
     </div>
   );

@@ -7,15 +7,20 @@ interface Props {
 }
 
 const Auth: React.FC<Props> = ({ onComplete, onBack }) => {
-  const [mode, setMode] = useState<'login' | 'signup'>('signup');
+  const [mode, setMode] = useState<'login' | 'signup' | 'forgot'>('signup');
   const [loading, setLoading] = useState(false);
+  const [sentReset, setSentReset] = useState(false);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
     setTimeout(() => {
       setLoading(false);
-      onComplete();
+      if (mode === 'forgot') {
+        setSentReset(true);
+      } else {
+        onComplete();
+      }
     }, 1500);
   };
 
@@ -28,8 +33,16 @@ const Auth: React.FC<Props> = ({ onComplete, onBack }) => {
       <div className="w-full max-w-md bg-white rounded-[3rem] shadow-2xl p-10 animate-in fade-in zoom-in-95 duration-500">
         <div className="text-center mb-10">
           <div className="w-16 h-16 bg-brand-900 rounded-[1.5rem] flex items-center justify-center text-white font-display font-bold text-3xl mx-auto mb-6 shadow-xl">P</div>
-          <h2 className="text-3xl font-display font-black text-brand-900">{mode === 'signup' ? 'Join the Pack' : 'Welcome Back'}</h2>
-          <p className="text-brand-800/50 mt-2">{mode === 'signup' ? 'Start your journey to better pet care.' : 'Ready to check on your companion?'}</p>
+          <h2 className="text-3xl font-display font-black text-brand-900">
+            {mode === 'signup' ? 'Join the Pack' : mode === 'login' ? 'Welcome Back' : 'Reset Access'}
+          </h2>
+          <p className="text-brand-800/50 mt-2">
+            {mode === 'signup'
+              ? 'Start your journey to better pet care.'
+              : mode === 'login'
+              ? 'Ready to check on your companion?'
+              : 'We will send a reset link to your email.'}
+          </p>
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-6">
@@ -40,12 +53,14 @@ const Auth: React.FC<Props> = ({ onComplete, onBack }) => {
               placeholder="Email Address" 
               className="w-full bg-brand-50/50 border border-brand-100 rounded-2xl px-6 py-4 outline-none focus:ring-2 focus:ring-brand-500 transition-all"
             />
-            <input 
-              required
-              type="password" 
-              placeholder="Password" 
-              className="w-full bg-brand-50/50 border border-brand-100 rounded-2xl px-6 py-4 outline-none focus:ring-2 focus:ring-brand-500 transition-all"
-            />
+            {mode !== 'forgot' && (
+              <input 
+                required
+                type="password" 
+                placeholder="Password" 
+                className="w-full bg-brand-50/50 border border-brand-100 rounded-2xl px-6 py-4 outline-none focus:ring-2 focus:ring-brand-500 transition-all"
+              />
+            )}
           </div>
 
           <button 
@@ -54,17 +69,38 @@ const Auth: React.FC<Props> = ({ onComplete, onBack }) => {
           >
             {loading ? (
               <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
-            ) : mode === 'signup' ? 'Create Account' : 'Login'}
+            ) : mode === 'signup' ? 'Create Account' : mode === 'login' ? 'Login' : 'Send Reset Link'}
           </button>
+          {mode === 'forgot' && sentReset && (
+            <p className="text-center text-sm text-brand-500 font-bold">Reset link sent. Check your email.</p>
+          )}
         </form>
 
-        <div className="mt-8 text-center text-sm">
-          <button 
-            onClick={() => setMode(mode === 'signup' ? 'login' : 'signup')}
-            className="text-brand-500 font-bold hover:underline"
-          >
-            {mode === 'signup' ? 'Already have an account? Login' : "Don't have an account? Sign up"}
-          </button>
+        <div className="mt-8 text-center text-sm space-y-3">
+          {mode !== 'forgot' && (
+            <button 
+              onClick={() => setMode(mode === 'signup' ? 'login' : 'signup')}
+              className="text-brand-500 font-bold hover:underline block w-full"
+            >
+              {mode === 'signup' ? 'Already have an account? Login' : "Don't have an account? Sign up"}
+            </button>
+          )}
+          {mode !== 'forgot' && (
+            <button
+              onClick={() => {
+                setMode('forgot');
+                setSentReset(false);
+              }}
+              className="text-brand-400 font-bold hover:underline"
+            >
+              Forgot password?
+            </button>
+          )}
+          {mode === 'forgot' && (
+            <button onClick={() => setMode('login')} className="text-brand-500 font-bold hover:underline">
+              Back to login
+            </button>
+          )}
         </div>
       </div>
     </div>
