@@ -3,11 +3,12 @@ import React, { useState, useEffect } from 'react';
 import LandingPage from './components/LandingPage';
 import Auth from './components/Auth';
 import Onboarding from './components/Onboarding';
+import OrgOnboarding from './components/OrgOnboarding';
 import Dashboard from './components/Dashboard';
 import { UserState, PetData } from './types';
 
 const App: React.FC = () => {
-  const [view, setView] = useState<'landing' | 'auth' | 'onboarding' | 'dashboard'>('landing');
+  const [view, setView] = useState<'landing' | 'auth' | 'onboarding' | 'org-onboarding' | 'dashboard'>('landing');
   const [user, setUser] = useState<UserState>(() => {
     const saved = localStorage.getItem('pawveda_user');
     if (saved) {
@@ -37,13 +38,22 @@ const App: React.FC = () => {
 
   const handleStart = () => setView('auth');
   
-  const handleAuthComplete = () => {
-    setUser(prev => ({ ...prev, isLoggedIn: true }));
-    setView(user.pet ? 'dashboard' : 'onboarding');
+  const handleAuthComplete = (role: 'pet-parent' | 'ngo') => {
+    setUser(prev => ({ ...prev, isLoggedIn: true, role }));
+    if (role === 'pet-parent') {
+      setView(user.pet ? 'dashboard' : 'onboarding');
+    } else {
+      setView(user.orgProfile ? 'dashboard' : 'org-onboarding');
+    }
   };
 
   const handleOnboardingComplete = (petData: PetData) => {
     setUser(prev => ({ ...prev, pet: petData }));
+    setView('dashboard');
+  };
+
+  const handleOrgOnboardingComplete = (orgProfile: { name: string; phone: string; city: string; orgName?: string }) => {
+    setUser(prev => ({ ...prev, orgProfile }));
     setView('dashboard');
   };
 
@@ -71,6 +81,7 @@ const App: React.FC = () => {
       {view === 'landing' && <LandingPage onStart={handleStart} />}
       {view === 'auth' && <Auth onComplete={handleAuthComplete} onBack={() => setView('landing')} />}
       {view === 'onboarding' && <Onboarding onComplete={handleOnboardingComplete} />}
+      {view === 'org-onboarding' && <OrgOnboarding onComplete={handleOrgOnboardingComplete} />}
       {view === 'dashboard' && (
         <Dashboard 
           user={user} 

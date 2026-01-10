@@ -124,6 +124,51 @@ export interface Reminder {
   completed?: boolean;
 }
 
+export type AdoptionStatus = 'submitted' | 'review' | 'interview' | 'home-visit' | 'approved' | 'adopted' | 'rejected';
+
+export interface AdoptionOrg {
+  id: string;
+  name: string;
+  verified: boolean;
+  city: string;
+  contactEmail: string;
+  contactPhone: string;
+  whatsapp?: string;
+  website?: string;
+}
+
+export interface AdoptionPet {
+  id: string;
+  name: string;
+  species: 'Dog' | 'Cat' | 'Other';
+  breed: string;
+  ageMonths: number;
+  gender: 'Male' | 'Female';
+  size: 'Small' | 'Medium' | 'Large';
+  city: string;
+  vaccinated: boolean;
+  sterilized: boolean;
+  temperamentTags: string[];
+  description: string;
+  photoUrl: string;
+  orgId: string;
+}
+
+export interface AdoptionApplication {
+  id: string;
+  petId: string;
+  applicantName: string;
+  email: string;
+  phone: string;
+  city: string;
+  housingType: 'Apartment' | 'Independent House' | 'Farm / Villa';
+  petExperience: 'First-time' | 'Experienced';
+  timeAvailability: 'Limited' | 'Moderate' | 'Flexible';
+  reason: string;
+  status: AdoptionStatus;
+  createdAt: string;
+}
+
 export interface ActivityLog {
   id: string;
   type: 'Walk' | 'Play' | 'Training';
@@ -143,7 +188,14 @@ export interface UserState {
   isLoggedIn: boolean;
   isPremium: boolean;
   credits: UserCredits;
+  role?: 'pet-parent' | 'ngo';
   pet?: PetData;
+  orgProfile?: {
+    name: string;
+    phone: string;
+    city: string;
+    orgName?: string;
+  };
   activities: ActivityLog[];
   memories: any[];
 }
