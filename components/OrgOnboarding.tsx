@@ -4,6 +4,8 @@ interface Props {
   onComplete: (data: { name: string; phone: string; city: string; orgName?: string }) => void;
 }
 
+const API_BASE_URL = import.meta.env.VITE_BACKEND_URL || 'http://localhost:8080';
+
 const OrgOnboarding: React.FC<Props> = ({ onComplete }) => {
   const [form, setForm] = useState({
     name: '',
@@ -11,6 +13,43 @@ const OrgOnboarding: React.FC<Props> = ({ onComplete }) => {
     city: '',
     orgName: ''
   });
+  const [submitting, setSubmitting] = useState(false);
+
+  const handleSubmit = async () => {
+    if (submitting) return;
+    setSubmitting(true);
+    const authRaw = localStorage.getItem('pawveda_auth');
+    const auth = authRaw ? JSON.parse(authRaw) : null;
+    if (!auth?.accessToken) {
+      setSubmitting(false);
+      onComplete(form);
+      return;
+    }
+
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/orgs/profile`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${auth.accessToken}`
+        },
+        body: JSON.stringify({
+          contactName: form.name,
+          phone: form.phone,
+          city: form.city,
+          orgName: form.orgName || null
+        })
+      });
+      if (!response.ok) {
+        console.error('Failed to save org profile', await response.text());
+      }
+    } catch (err) {
+      console.error('Failed to save org profile', err);
+    } finally {
+      setSubmitting(false);
+      onComplete(form);
+    }
+  };
 
   return (
     <div className="min-h-screen bg-[#FAF8F6] flex items-center justify-center p-6">
@@ -47,10 +86,11 @@ const OrgOnboarding: React.FC<Props> = ({ onComplete }) => {
           />
         </div>
         <button
-          onClick={() => onComplete(form)}
-          className="w-full bg-brand-900 text-white py-4 rounded-[2rem] font-black text-sm uppercase tracking-widest"
+          onClick={handleSubmit}
+          disabled={submitting}
+          className="w-full bg-brand-900 text-white py-4 rounded-[2rem] font-black text-sm uppercase tracking-widest disabled:opacity-60"
         >
-          Continue
+          {submitting ? 'Saving...' : 'Continue'}
         </button>
       </div>
     </div>
