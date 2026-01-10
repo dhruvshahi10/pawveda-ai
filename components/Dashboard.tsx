@@ -1180,11 +1180,11 @@ const Dashboard: React.FC<Props> = ({ user, setUser, onUpgrade, onLogout }) => {
                     ))}
                   </div>
                   <textarea
-                    placeholder="Describe the concern or upload a note. (Saved to your care history once Supabase is connected.)"
+                    placeholder="Describe the concern or upload a note. (Saved to your care history once cloud storage is connected.)"
                     className="w-full bg-white p-4 rounded-2xl border border-brand-100 text-xs font-medium h-24 resize-none"
                   />
                   <div className="flex items-center justify-between">
-                    <p className="text-[10px] font-bold uppercase tracking-widest text-brand-400">Next: Connect to Supabase for scheduling</p>
+                    <p className="text-[10px] font-bold uppercase tracking-widest text-brand-400">Next: Connect cloud storage for scheduling</p>
                     <button className="bg-brand-900 text-white px-6 py-3 rounded-full text-[10px] font-black uppercase tracking-widest">
                       Queue Request
                     </button>
@@ -1364,7 +1364,7 @@ const Dashboard: React.FC<Props> = ({ user, setUser, onUpgrade, onLogout }) => {
             </div>
             <div className="space-y-3">
               {[
-                { q: "How do I update my pet profile?", a: "Go to Parent Dashboard and edit your pet registry once Supabase is connected." },
+                { q: "How do I update my pet profile?", a: "Go to Parent Dashboard and edit your pet registry once cloud storage is connected." },
                 { q: "How are care centres verified?", a: "We surface nearby services via maps and ask you to confirm hours before visiting." },
                 { q: "How do reminders work?", a: "Set a date and repeat cycle; reminders appear in your feed and notifications." }
               ].map(item => (

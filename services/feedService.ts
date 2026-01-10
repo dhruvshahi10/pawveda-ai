@@ -1,4 +1,5 @@
 import { ChecklistHistoryPoint, ChecklistSection, DailyBrief, DailyBriefItem, MicroTip, NearbyService, PetData, PetEvent, SafetyRadar } from "../types";
+import { apiClient } from "./apiClient";
 
 const MICRO_TIPS: MicroTip[] = [
   { id: "tip-heat-paws", title: "Paw Heat Check", detail: "If the pavement is too hot for your hand, it’s too hot for paws. Choose shaded routes.", tags: ["safety", "walks"] },
@@ -114,20 +115,17 @@ export const getChecklist = (petData: PetData): ChecklistSection[] => {
 
 export const fetchPetEvents = async (city: string): Promise<PetEvent[]> => {
   try {
-    const response = await fetch(`/api/pet-events?city=${encodeURIComponent(city)}`);
-    if (response.ok) {
-      const data = await response.json();
-      if (Array.isArray(data?.events) && data.events.length) {
-        return data.events.map((event: any, index: number) => ({
-          id: `event-${index}`,
-          title: event.title || "Pet Event",
-          venue: event.venue || city,
-          dateLabel: event.dateLabel || "Upcoming",
-          url: event.url,
-          source: event.source || "Google Search",
-          city
-        }));
-      }
+    const data = await apiClient.get<{ events?: any[] }>(`/api/pet-events?city=${encodeURIComponent(city)}`);
+    if (Array.isArray(data?.events) && data.events.length) {
+      return data.events.map((event: any, index: number) => ({
+        id: `event-${index}`,
+        title: event.title || "Pet Event",
+        venue: event.venue || city,
+        dateLabel: event.dateLabel || "Upcoming",
+        url: event.url,
+        source: event.source || "Google Search",
+        city
+      }));
     }
   } catch {
     // ignore
@@ -178,10 +176,7 @@ const buildFallbackBrief = (city: string): DailyBrief => {
 
 export const fetchDailyBrief = async (city: string): Promise<DailyBrief> => {
   try {
-    const response = await fetch(`/api/daily-brief?city=${encodeURIComponent(city)}`);
-    if (response.ok) {
-      return await response.json();
-    }
+    return await apiClient.get<DailyBrief>(`/api/daily-brief?city=${encodeURIComponent(city)}`);
   } catch {
     // ignore
   }
@@ -190,10 +185,7 @@ export const fetchDailyBrief = async (city: string): Promise<DailyBrief> => {
 
 export const fetchSafetyRadar = async (city: string): Promise<SafetyRadar> => {
   try {
-    const response = await fetch(`/api/air-quality?city=${encodeURIComponent(city)}`);
-    if (response.ok) {
-      return await response.json();
-    }
+    return await apiClient.get<SafetyRadar>(`/api/air-quality?city=${encodeURIComponent(city)}`);
   } catch {
     // ignore
   }
@@ -215,12 +207,9 @@ export const fetchSafetyRadar = async (city: string): Promise<SafetyRadar> => {
 
 export const fetchNearbyServices = async (city: string): Promise<NearbyService[]> => {
   try {
-    const response = await fetch(`/api/nearby-services?city=${encodeURIComponent(city)}`);
-    if (response.ok) {
-      const data = await response.json();
-      const services = Array.isArray(data?.services) ? data.services : [];
-      if (services.length) return services;
-    }
+    const data = await apiClient.get<{ services?: NearbyService[] }>(`/api/nearby-services?city=${encodeURIComponent(city)}`);
+    const services = Array.isArray(data?.services) ? data.services : [];
+    if (services.length) return services;
   } catch {
     // ignore
   }
