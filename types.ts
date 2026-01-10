@@ -29,6 +29,89 @@ export interface NewsInsight {
   source: string;
 }
 
+export interface MicroTip {
+  id: string;
+  title: string;
+  detail: string;
+  tags: string[];
+}
+
+export interface PetEvent {
+  id: string;
+  title: string;
+  venue: string;
+  dateLabel: string;
+  url?: string;
+  source: string;
+  city: string;
+}
+
+export interface DailyBriefItem {
+  id: string;
+  title: string;
+  value: string;
+  detail: string;
+  badge: string;
+  icon: string;
+}
+
+export interface DailyBrief {
+  city: string;
+  updatedAt: string;
+  items: DailyBriefItem[];
+}
+
+export interface SafetyRadar {
+  city: string;
+  pm25: number | null;
+  airQualityLabel: string;
+  status: string;
+  advisory: string;
+  safeWindow: string;
+  updatedAt: string;
+  temperature?: number | null;
+  humidity?: number | null;
+  feelsLike?: number | null;
+}
+
+export interface NearbyService {
+  id: string;
+  name: string;
+  type: string;
+  address: string;
+  locality?: string;
+  link: string;
+  googleMapsLink?: string;
+  lat?: number;
+  lon?: number;
+  source?: string;
+}
+
+export interface ChecklistItem {
+  id: string;
+  label: string;
+}
+
+export interface ChecklistSection {
+  id: string;
+  title: string;
+  items: ChecklistItem[];
+}
+
+export interface ChecklistHistoryPoint {
+  date: string;
+  completion: number;
+}
+
+export interface Reminder {
+  id: string;
+  title: string;
+  date: string;
+  repeat: 'None' | 'Weekly' | 'Monthly' | 'Quarterly';
+  notes?: string;
+  completed?: boolean;
+}
+
 export interface ActivityLog {
   id: string;
   type: 'Walk' | 'Play' | 'Training';
