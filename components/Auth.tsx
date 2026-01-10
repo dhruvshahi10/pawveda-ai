@@ -66,7 +66,7 @@ const Auth: React.FC<Props> = ({ onComplete, onBack }) => {
       const endpoint = mode === 'signup' ? '/api/auth/register' : '/api/auth/login';
       const payload =
         mode === 'signup'
-          ? { email: trimmedEmail, password, fullName: fullName.trim(), phoneE164 }
+          ? { email: trimmedEmail, password, fullName: fullName.trim(), phoneE164, role }
           : { email: trimmedEmail, password };
 
       const response = await fetch(`${API_BASE_URL}${endpoint}`, {

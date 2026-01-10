@@ -6,6 +6,8 @@ interface Props {
   onComplete: (data: PetData) => void;
 }
 
+const API_BASE_URL = import.meta.env.VITE_BACKEND_URL || 'http://localhost:8080';
+
 const steps = [
   { 
     title: "Initializing Intelligence", 
@@ -106,7 +108,7 @@ const Onboarding: React.FC<Props> = ({ onComplete }) => {
     if (step < steps.length - 1) {
       setStep(s => s + 1);
     } else {
-      onComplete(formData);
+      handleSubmit();
     }
   };
 
@@ -131,10 +133,61 @@ const Onboarding: React.FC<Props> = ({ onComplete }) => {
 
   useEffect(() => {
     if (step === steps.length - 1) {
-      const timer = setTimeout(() => onComplete(formData), 3500);
+      const timer = setTimeout(() => handleSubmit(), 3500);
       return () => clearTimeout(timer);
     }
   }, [step]);
+
+  const handleSubmit = async () => {
+    const authRaw = localStorage.getItem('pawveda_auth');
+    const auth = authRaw ? JSON.parse(authRaw) : null;
+    if (!auth?.accessToken) {
+      onComplete(formData);
+      return;
+    }
+
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/pets`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${auth.accessToken}`
+        },
+        body: JSON.stringify({
+          name: formData.name,
+          breed: formData.breed,
+          age: formData.age,
+          ageMonths: formData.ageMonths,
+          weight: formData.weight,
+          dietType: formData.dietType,
+          gender: formData.gender,
+          activityLevel: formData.activityLevel,
+          city: formData.city,
+          spayNeuterStatus: formData.spayNeuterStatus,
+          vaccinationStatus: formData.vaccinationStatus,
+          lastVaccineDate: formData.lastVaccineDate || null,
+          activityBaseline: formData.activityBaseline,
+          housingType: formData.housingType,
+          walkSurface: formData.walkSurface,
+          parkAccess: formData.parkAccess,
+          feedingSchedule: formData.feedingSchedule,
+          foodBrand: formData.foodBrand,
+          vetAccess: formData.vetAccess,
+          allergies: formData.allergies,
+          interests: formData.interests,
+          goals: formData.goals
+        })
+      });
+
+      if (!response.ok) {
+        console.error('Failed to save pet profile', await response.text());
+      }
+    } catch (err) {
+      console.error('Failed to save pet profile', err);
+    } finally {
+      onComplete(formData);
+    }
+  };
 
   const progress = (step / (steps.length - 1)) * 100;
 
