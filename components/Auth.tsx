@@ -1,10 +1,12 @@
 
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 
 interface Props {
   onComplete: (role: 'pet-parent' | 'ngo') => void;
   onBack: () => void;
 }
+
+const API_BASE_URL = import.meta.env.VITE_BACKEND_URL || 'http://localhost:8080';
 
 const Auth: React.FC<Props> = ({ onComplete, onBack }) => {
   const [mode, setMode] = useState<'login' | 'signup' | 'forgot'>('signup');
@@ -12,18 +14,91 @@ const Auth: React.FC<Props> = ({ onComplete, onBack }) => {
   const [sentReset, setSentReset] = useState(false);
   const [countryCode, setCountryCode] = useState('+91');
   const [role, setRole] = useState<'pet-parent' | 'ngo'>('pet-parent');
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [fullName, setFullName] = useState('');
+  const [phoneNumber, setPhoneNumber] = useState('');
+  const [error, setError] = useState('');
 
-  const handleSubmit = (e: React.FormEvent) => {
+  useEffect(() => {
+    setError('');
+    setSentReset(false);
+  }, [mode]);
+
+  const resetForm = () => {
+    setEmail('');
+    setPassword('');
+    setFullName('');
+    setPhoneNumber('');
+    setError('');
+  };
+
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (loading) return;
+    setError('');
     setLoading(true);
-    setTimeout(() => {
-      setLoading(false);
-      if (mode === 'forgot') {
+
+    if (mode === 'forgot') {
+      setTimeout(() => {
+        setLoading(false);
         setSentReset(true);
-      } else {
-        onComplete(role);
+      }, 800);
+      return;
+    }
+
+    const trimmedEmail = email.trim().toLowerCase();
+    if (!trimmedEmail || !password) {
+      setLoading(false);
+      setError('Email and password are required.');
+      return;
+    }
+    if (mode === 'signup' && !fullName.trim()) {
+      setLoading(false);
+      setError('Full name is required.');
+      return;
+    }
+
+    const sanitizedPhone = phoneNumber.replace(/\D/g, '');
+    const phoneE164 = mode === 'signup' && sanitizedPhone ? `${countryCode}${sanitizedPhone}` : undefined;
+
+    try {
+      const endpoint = mode === 'signup' ? '/api/auth/register' : '/api/auth/login';
+      const payload =
+        mode === 'signup'
+          ? { email: trimmedEmail, password, fullName: fullName.trim(), phoneE164 }
+          : { email: trimmedEmail, password };
+
+      const response = await fetch(`${API_BASE_URL}${endpoint}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        throw new Error(data?.error || 'Authentication failed.');
       }
-    }, 1500);
+
+      if (data?.accessToken && data?.refreshToken) {
+        localStorage.setItem(
+          'pawveda_auth',
+          JSON.stringify({
+            accessToken: data.accessToken,
+            refreshToken: data.refreshToken,
+            user: data.user || null
+          })
+        );
+      }
+
+      onComplete(role);
+      resetForm();
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Authentication failed.';
+      setError(message);
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
@@ -73,9 +148,20 @@ const Auth: React.FC<Props> = ({ onComplete, onBack }) => {
               type="email" 
               placeholder="Email Address" 
               className="w-full bg-brand-50/50 border border-brand-100 rounded-2xl px-6 py-4 outline-none focus:ring-2 focus:ring-brand-500 transition-all"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
             />
             {mode === 'signup' && (
-              <div className="flex gap-3">
+              <>
+                <input 
+                  required
+                  type="text" 
+                  placeholder="Full Name" 
+                  className="w-full bg-brand-50/50 border border-brand-100 rounded-2xl px-6 py-4 outline-none focus:ring-2 focus:ring-brand-500 transition-all"
+                  value={fullName}
+                  onChange={(e) => setFullName(e.target.value)}
+                />
+                <div className="flex gap-3">
                 <select
                   value={countryCode}
                   onChange={(e) => setCountryCode(e.target.value)}
@@ -90,11 +176,14 @@ const Auth: React.FC<Props> = ({ onComplete, onBack }) => {
                   required
                   type="tel"
                   inputMode="numeric"
-                  pattern="[0-9]{10}"
+                  pattern="[0-9]{6,15}"
                   placeholder="Mobile Number"
                   className="flex-1 bg-brand-50/50 border border-brand-100 rounded-2xl px-6 py-4 outline-none focus:ring-2 focus:ring-brand-500 transition-all"
+                  value={phoneNumber}
+                  onChange={(e) => setPhoneNumber(e.target.value)}
                 />
-              </div>
+                </div>
+              </>
             )}
             {mode !== 'forgot' && (
               <input 
@@ -102,9 +191,14 @@ const Auth: React.FC<Props> = ({ onComplete, onBack }) => {
                 type="password" 
                 placeholder="Password" 
                 className="w-full bg-brand-50/50 border border-brand-100 rounded-2xl px-6 py-4 outline-none focus:ring-2 focus:ring-brand-500 transition-all"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
               />
             )}
           </div>
+          {error && (
+            <p className="text-center text-sm text-red-500 font-bold">{error}</p>
+          )}
 
           <button 
             disabled={loading}
