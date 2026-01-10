@@ -34,12 +34,19 @@ const petQuotes = [
   "“A pet is the only thing on earth that loves you more than you love yourself.” — Josh Billings"
 ];
 
+const adoptionPets = [
+  { name: "Bruno", breed: "Indie / Pariah", city: "Delhi", photo: "https://images.unsplash.com/photo-1537151608828-ea2b11777ee8?auto=format&fit=crop&q=80&w=800" },
+  { name: "Miso", breed: "Indie Cat", city: "Mumbai", photo: "https://images.unsplash.com/photo-1518791841217-8f162f1e1131?auto=format&fit=crop&q=80&w=800" },
+  { name: "Luna", breed: "Golden Retriever", city: "Bengaluru", photo: "https://images.unsplash.com/photo-1507146426996-ef05306b995a?auto=format&fit=crop&q=80&w=800" },
+  { name: "Simba", breed: "Indie / Pariah", city: "Pune", photo: "https://images.unsplash.com/photo-1548199973-03cce0bbc87b?auto=format&fit=crop&q=80&w=800" }
+];
+
 const LandingPage: React.FC<Props> = ({ onStart }) => {
   const [problemIndex, setProblemIndex] = useState(0);
   const [quoteIndex, setQuoteIndex] = useState(0);
   const [formSubmitted, setFormSubmitted] = useState(false);
   const [email, setEmail] = useState('');
-  const [premiumInterest, setPremiumInterest] = useState('');
+  const [premiumInterest, setPremiumInterest] = useState<string[]>([]);
   const [phoneCountry, setPhoneCountry] = useState('IN');
   const [phoneNumber, setPhoneNumber] = useState('');
   const [formError, setFormError] = useState('');
@@ -90,8 +97,8 @@ const LandingPage: React.FC<Props> = ({ onStart }) => {
       setFormError('Please enter a valid email address.');
       return;
     }
-    if (!premiumInterest) {
-      setFormError('Please select the feature you are most excited about.');
+    if (premiumInterest.length === 0) {
+      setFormError('Please select at least one feature you are excited about.');
       return;
     }
     if (!phoneNumber.trim()) {
@@ -134,7 +141,7 @@ const LandingPage: React.FC<Props> = ({ onStart }) => {
 
       const { error } = await supabase.from('beta_waitlist').insert({
         email: trimmedEmail,
-        premium_interest: premiumInterest,
+        premium_interest: premiumInterest.join(', '),
         country_code: selectedCountry.code,
         country_name: selectedCountry.name,
         phone_e164: parsedPhone.number,
@@ -146,7 +153,7 @@ const LandingPage: React.FC<Props> = ({ onStart }) => {
       }
       setFormSubmitted(true);
       setEmail('');
-      setPremiumInterest('');
+      setPremiumInterest([]);
       setPhoneNumber('');
     } catch (err) {
       console.error('Waitlist submission failed:', err);
@@ -154,6 +161,22 @@ const LandingPage: React.FC<Props> = ({ onStart }) => {
     } finally {
       setIsSubmitting(false);
     }
+  };
+
+  const interestOptions = [
+    'AI-Powered NutriScan (Dal/Curd Audits)',
+    'Health Vault (Prescription Analysis)',
+    'Climate Shield (Heat Safety Alerts)',
+    'Studio Pro (Cinematic Memories)',
+    '24/7 AI First-Aid Companion'
+  ];
+
+  const toggleInterest = (value: string) => {
+    setPremiumInterest((prev) => (
+      prev.includes(value)
+        ? prev.filter((item) => item !== value)
+        : [...prev, value]
+    ));
   };
 
   return (
@@ -334,6 +357,39 @@ const LandingPage: React.FC<Props> = ({ onStart }) => {
         <div className="absolute top-0 right-0 w-40 h-full bg-gradient-to-l from-neutral-dark to-transparent z-10"></div>
       </section>
 
+      {/* Adoption Preview */}
+      <section className="py-32 px-6 bg-white">
+        <div className="max-w-7xl mx-auto space-y-12">
+          <div className="text-center space-y-4">
+            <span className="text-brand-500 font-black text-[10px] uppercase tracking-[0.3em]">Adopt a Paw</span>
+            <h2 className="text-4xl md:text-5xl font-display font-black text-brand-900">Adopt. Don’t Shop.</h2>
+            <p className="text-brand-800/60 text-lg max-w-3xl mx-auto">
+              Discover verified pets waiting for loving homes across India. Each adoption is vetted, documented, and guided by rescue partners.
+            </p>
+          </div>
+          <div className="flex gap-6 overflow-x-auto snap-x scrollbar-hide pb-4">
+            {adoptionPets.map((pet) => (
+              <div key={pet.name} className="min-w-[260px] snap-center bg-brand-50 rounded-[2.5rem] overflow-hidden border border-brand-100 shadow-sm">
+                <img src={pet.photo} alt={pet.name} className="w-full h-44 object-cover" />
+                <div className="p-5 space-y-2">
+                  <p className="text-lg font-display font-black text-brand-900">{pet.name}</p>
+                  <p className="text-sm text-brand-800/60">{pet.breed}</p>
+                  <p className="text-[10px] font-bold uppercase tracking-widest text-brand-400">{pet.city}</p>
+                  <button onClick={onStart} className="w-full mt-3 bg-brand-900 text-white py-3 rounded-[1.5rem] text-[10px] font-black uppercase tracking-widest">
+                    Adopt
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+          <div className="text-center">
+            <button onClick={onStart} className="bg-brand-900 text-white px-10 py-4 rounded-full font-black uppercase tracking-widest text-[10px]">
+              Explore Adoption Hub
+            </button>
+          </div>
+        </div>
+      </section>
+
       {/* Pricing Section */}
       <section className="py-40 px-6 max-w-7xl mx-auto">
         <div className="text-center mb-24">
@@ -391,10 +447,10 @@ const LandingPage: React.FC<Props> = ({ onStart }) => {
       <section className="py-40 px-6 bg-brand-50">
         <div className="max-w-6xl mx-auto bg-white rounded-[5rem] shadow-2xl overflow-hidden grid md:grid-cols-2 relative group border border-white">
           <div className="p-16 md:p-24 flex flex-col justify-center">
-            <span className="text-brand-500 font-black text-[10px] uppercase tracking-[0.3em] mb-6 block">Stay Informed</span>
-            <h2 className="text-5xl font-display font-black text-brand-900 mb-8 leading-[1.1] tracking-tight">Help us build the <br/><span className="text-brand-500">Perfect Service.</span></h2>
+            <span className="text-brand-500 font-black text-[10px] uppercase tracking-[0.3em] mb-6 block">Try For Free</span>
+            <h2 className="text-5xl font-display font-black text-brand-900 mb-8 leading-[1.1] tracking-tight">Try PawVeda for free. <br/><span className="text-brand-500">Shape what we ship.</span></h2>
             <p className="text-brand-800/60 text-xl mb-12 leading-relaxed">
-              Tell us what features you want most. Join our waitlist for a free "Desi Food Toxicity Guide" and early beta features.
+              Tell us what you want most and we will send your free "Desi Food Toxicity Guide" plus early access.
             </p>
             
             {formSubmitted ? (
@@ -445,21 +501,31 @@ const LandingPage: React.FC<Props> = ({ onStart }) => {
                     />
                   </div>
                 </div>
-                <div className="relative">
-                  <select 
-                    required
-                    className="w-full bg-[#FAF8F6] border-2 border-transparent focus:border-brand-500/30 rounded-[2.5rem] px-10 py-6 outline-none transition-all text-lg font-medium shadow-inner appearance-none cursor-pointer"
-                    value={premiumInterest}
-                    onChange={(e) => setPremiumInterest(e.target.value)}
-                  >
-                    <option value="" disabled>What feature are you excited for?</option>
-                    <option value="AI-Powered NutriScan (Dal/Curd Audits)">AI-Powered NutriScan (Dal/Curd Audits)</option>
-                    <option value="Health Vault (Prescription Analysis)">Health Vault (Prescription Analysis)</option>
-                    <option value="Climate Shield (Heat Safety Alerts)">Climate Shield (Heat Safety Alerts)</option>
-                    <option value="Studio Pro (Cinematic Memories)">Studio Pro (Cinematic Memories)</option>
-                    <option value="24/7 AI First-Aid Companion">24/7 AI First-Aid Companion</option>
-                  </select>
-                  <div className="absolute right-8 top-1/2 -translate-y-1/2 pointer-events-none opacity-40">▼</div>
+                <div className="space-y-4">
+                  <div className="flex items-center justify-between">
+                    <p className="text-sm font-bold uppercase tracking-[0.25em] text-brand-500">Pick what excites you</p>
+                    <span className="text-xs text-brand-800/50">Multiple select</span>
+                  </div>
+                  <div className="flex flex-wrap gap-3">
+                    {interestOptions.map((option) => {
+                      const selected = premiumInterest.includes(option);
+                      return (
+                        <button
+                          key={option}
+                          type="button"
+                          onClick={() => toggleInterest(option)}
+                          className={`px-5 py-3 rounded-[999px] border-2 text-sm font-semibold transition-all ${
+                            selected
+                              ? 'bg-brand-900 text-white border-brand-900 shadow-lg'
+                              : 'bg-[#FAF8F6] text-brand-900 border-brand-100 hover:border-brand-500/60'
+                          }`}
+                          aria-pressed={selected}
+                        >
+                          {selected ? '✓ ' : ''}{option}
+                        </button>
+                      );
+                    })}
+                  </div>
                 </div>
                 {formError && (
                   <p className="text-sm text-red-500 font-semibold text-center">{formError}</p>
@@ -469,7 +535,7 @@ const LandingPage: React.FC<Props> = ({ onStart }) => {
                   disabled={isSubmitting}
                   className="w-full bg-brand-900 text-white py-6 rounded-[2.5rem] font-black text-xl shadow-2xl hover:bg-brand-500 transition-all active:scale-95 transform hover:-translate-y-1 disabled:opacity-60 disabled:cursor-not-allowed"
                 >
-                  {isSubmitting ? 'Saving your spot...' : 'Join the Beta Waitlist'}
+                  {isSubmitting ? 'Saving your access...' : 'Try for free'}
                 </button>
               </form>
             )}

@@ -2,7 +2,7 @@
 import React, { useState } from 'react';
 
 interface Props {
-  onComplete: () => void;
+  onComplete: (role: 'pet-parent' | 'ngo') => void;
   onBack: () => void;
 }
 
@@ -11,6 +11,7 @@ const Auth: React.FC<Props> = ({ onComplete, onBack }) => {
   const [loading, setLoading] = useState(false);
   const [sentReset, setSentReset] = useState(false);
   const [countryCode, setCountryCode] = useState('+91');
+  const [role, setRole] = useState<'pet-parent' | 'ngo'>('pet-parent');
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -20,7 +21,7 @@ const Auth: React.FC<Props> = ({ onComplete, onBack }) => {
       if (mode === 'forgot') {
         setSentReset(true);
       } else {
-        onComplete();
+        onComplete(role);
       }
     }, 1500);
   };
@@ -48,6 +49,25 @@ const Auth: React.FC<Props> = ({ onComplete, onBack }) => {
 
         <form onSubmit={handleSubmit} className="space-y-6">
           <div className="space-y-4">
+            {mode !== 'forgot' && (
+              <div className="grid grid-cols-2 gap-3">
+                {[
+                  { id: 'pet-parent', label: 'Pet Parent' },
+                  { id: 'ngo', label: 'NGO / General' }
+                ].map(option => (
+                  <button
+                    key={option.id}
+                    type="button"
+                    onClick={() => setRole(option.id as 'pet-parent' | 'ngo')}
+                    className={`py-3 rounded-2xl border-2 text-[10px] font-black uppercase tracking-widest transition-all ${
+                      role === option.id ? 'bg-brand-900 text-white border-brand-900' : 'bg-white text-brand-900 border-brand-50 hover:border-brand-100'
+                    }`}
+                  >
+                    {option.label}
+                  </button>
+                ))}
+              </div>
+            )}
             <input 
               required
               type="email" 

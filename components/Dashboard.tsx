@@ -8,6 +8,7 @@ import {
   generatePlayPlan
 } from '../services/geminiService';
 import { fetchDailyBrief, fetchNearbyServices, fetchPetEvents, fetchSafetyRadar, getChecklist, getMicroTips, seedChecklistHistory } from '../services/feedService';
+import Adoption from './Adoption';
 
 interface Props {
   user: UserState;
@@ -37,7 +38,7 @@ const TRAINING_TECHNIQUES = [
 ];
 
 const Dashboard: React.FC<Props> = ({ user, setUser, onUpgrade, onLogout }) => {
-  const [activeTab, setActiveTab] = useState<'home' | 'nutri' | 'play' | 'studio' | 'parent'>('home');
+  const [activeTab, setActiveTab] = useState<'home' | 'nutri' | 'play' | 'studio' | 'parent' | 'adoption'>('home');
   const [isProcessing, setIsProcessing] = useState(false);
   const [loadingMsg, setLoadingMsg] = useState('');
   const [microTips, setMicroTips] = useState<MicroTip[]>([]);
@@ -1209,6 +1210,12 @@ const Dashboard: React.FC<Props> = ({ user, setUser, onUpgrade, onLogout }) => {
           </div>
         )}
 
+        {activeTab === 'adoption' && (
+          <div className="space-y-12 animate-reveal pb-20">
+            <Adoption city={user.pet?.city} />
+          </div>
+        )}
+
       </main>
 
       {/* Navigation */}
@@ -1217,6 +1224,7 @@ const Dashboard: React.FC<Props> = ({ user, setUser, onUpgrade, onLogout }) => {
           { id: 'home' as const, label: 'Feed', icon: '🐾' },
           { id: 'nutri' as const, label: 'Lens', icon: '🥗' },
           { id: 'play' as const, label: 'Play', icon: '🏃‍♂️' },
+          { id: 'adoption' as const, label: 'Adopt', icon: '🏡' },
           { id: 'studio' as const, label: 'Studio', icon: '✨' },
           { id: 'parent' as const, label: 'Parent', icon: '🦴' }
         ].map(tab => (
