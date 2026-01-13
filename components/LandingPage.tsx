@@ -7,14 +7,6 @@ interface Props {
   onStart: (mode?: 'login' | 'signup') => void;
 }
 
-const problems = [
-  "Is the hidden onion in your dal harming your pet?",
-  "Walking your Indie in the 42°C Delhi heat?",
-  "Scattered medical records across WhatsApp chats?",
-  "Is home-cooked food enough for your breed's joints?",
-  "Struggling with RWA rules for your pet in Mumbai?"
-];
-
 const animalTypes = [
   { icon: "🐕", name: "Indie / Pariah", feature: "NutriScan Expert" },
   { icon: "🐈", name: "Persian Cat", feature: "Coat Health AI" },
@@ -42,7 +34,6 @@ const adoptionPets = [
 ];
 
 const LandingPage: React.FC<Props> = ({ onStart }) => {
-  const [problemIndex, setProblemIndex] = useState(0);
   const [quoteIndex, setQuoteIndex] = useState(0);
   const [formSubmitted, setFormSubmitted] = useState(false);
   const [email, setEmail] = useState('');
@@ -54,15 +45,11 @@ const LandingPage: React.FC<Props> = ({ onStart }) => {
   const [isVisible, setIsVisible] = useState(false);
 
   useEffect(() => {
-    const interval = setInterval(() => {
-      setProblemIndex(prev => (prev + 1) % problems.length);
-    }, 4000);
     const quoteInterval = setInterval(() => {
       setQuoteIndex(prev => (prev + 1) % petQuotes.length);
     }, 4500);
     setIsVisible(true);
     return () => {
-      clearInterval(interval);
       clearInterval(quoteInterval);
     };
   }, []);
@@ -180,19 +167,19 @@ const LandingPage: React.FC<Props> = ({ onStart }) => {
       </nav>
 
       {/* Hero Section */}
-      <section className="pt-16 pb-32 px-6">
+      <section className="pt-6 pb-28 px-6">
         <div className="max-w-7xl mx-auto grid lg:grid-cols-2 gap-20 items-center">
           <div className={`transition-all duration-1000 delay-300 transform ${isVisible ? 'translate-y-0 opacity-100' : 'translate-y-20 opacity-0'}`}>
-            <span className="inline-block px-4 py-1.5 rounded-full bg-brand-100 text-brand-700 text-[10px] font-black uppercase tracking-[0.2em] mb-8">
+            <span className="inline-block px-4 py-2 rounded-full bg-brand-100 text-brand-700 text-[9px] sm:text-[10px] font-black uppercase tracking-[0.18em] sm:tracking-[0.2em] mb-8 text-center leading-relaxed max-w-[24rem] sm:max-w-none">
               The Intelligence Layer for Indian Pet Parents
             </span>
             <h1 className="text-6xl md:text-8xl font-display font-extrabold text-neutral-dark leading-[0.9] mb-10 tracking-tighter">
-              Expert Care. <br/><span className="text-brand-500 italic font-serif">Redefined.</span>
+              AI-Powered Pet Care, <br/><span className="text-brand-500 italic font-serif">Tailored for Indian Pet Parents</span>
             </h1>
             
-            <div className="h-20 mb-12 border-l-4 border-brand-500 pl-8 flex items-center overflow-hidden">
+            <div className="mb-12 border-l-4 border-brand-500 pl-8">
               <p className="text-xl md:text-2xl text-brand-800/80 font-medium italic animate-reveal">
-                {problems[problemIndex]}
+                Get expert guidance for your pet’s nutrition, health, and safety — with daily briefs, safety alerts, and nearby services tuned to your city and your pet’s breed.
               </p>
             </div>
 
@@ -203,7 +190,7 @@ const LandingPage: React.FC<Props> = ({ onStart }) => {
               <div className="flex items-center gap-4">
                 <div className="flex -space-x-3">
                   {[1, 2, 3, 4].map(i => (
-                    <img key={i} src={`https://i.pravatar.cc/100?u=${i + 20}`} className="w-12 h-12 rounded-full border-4 border-[#FAF8F6] shadow-md" alt="User" />
+                    <img key={i} src={`https://i.pravatar.cc/100?u=${i + 20}`} className="w-12 h-12 rounded-full border-4 border-[#FAF8F6] shadow-md" alt="User" loading="lazy" />
                   ))}
                 </div>
                 <div className="text-left">
@@ -219,7 +206,7 @@ const LandingPage: React.FC<Props> = ({ onStart }) => {
             <img 
               src="https://images.unsplash.com/photo-1598133894008-61f7fdb8cc3a?auto=format&fit=crop&q=80&w=1200" 
               className="rounded-[5rem] shadow-[0_40px_100px_-20px_rgba(82,49,23,0.3)] w-full object-cover aspect-[4/5] border-8 border-white hover:scale-[1.02] transition-transform duration-700"
-              alt="Happy Indian Dog"
+              alt="Happy Indian dog receiving AI-powered pet care guidance from PawVeda"
             />
             {/* Floating UI Elements */}
             <div className="absolute -bottom-10 -left-10 bg-white/90 backdrop-blur-xl p-8 rounded-[3rem] shadow-2xl max-w-[280px] border border-white/20 animate-bounce-slow">
@@ -245,12 +232,12 @@ const LandingPage: React.FC<Props> = ({ onStart }) => {
           </div>
           <div className="hidden md:grid md:grid-cols-3 gap-16">
             {[
-              { icon: "📡", title: "Daily Pet Brief", desc: "Personalized walking index, hydration risk, and air safety based on your city and breed.", delay: 'delay-100' },
-              { icon: "🧭", title: "Safety Radar", desc: "Heat, humidity, and air quality signals with safe walk windows and actions.", delay: 'delay-200' },
-              { icon: "🏥", title: "Nearby Services", desc: "Find clinics, groomers, and boarding quickly with map-verified links.", delay: 'delay-300' },
-              { icon: "⏰", title: "Care Reminders", desc: "Vaccines, deworming, grooming, and checkups — never miss a cycle.", delay: 'delay-400' },
-              { icon: "✅", title: "Breed Checklists", desc: "Daily routines and nutrition checklists tailored to your companion.", delay: 'delay-500' },
-              { icon: "✨", title: "Magic Studio", desc: "Generate cinematic pet art and keep memories in one place.", delay: 'delay-600' }
+              { icon: "📡", title: "Daily Pet Brief", desc: "Personalized walking index, hydration risk, and air safety based on your city and breed. Daily Pet Brief helps Indian pet parents make smarter pet health decisions using local weather and breed-specific insights.", delay: 'delay-100' },
+              { icon: "🧭", title: "Safety Radar", desc: "Heat, humidity, and air quality signals with safe walk windows and actions. It improves pet safety for Indian pet parents with clear alerts.", delay: 'delay-200' },
+              { icon: "🏥", title: "Nearby Services", desc: "Find clinics, groomers, and boarding quickly with map-verified links. Discover nearby vet services when you need trusted local care.", delay: 'delay-300' },
+              { icon: "⏰", title: "Care Reminders", desc: "Vaccines, deworming, grooming, and checkups — never miss a cycle. Consistent reminders protect pet health for busy Indian pet parents.", delay: 'delay-400' },
+              { icon: "✅", title: "Breed Checklists", desc: "Daily routines and nutrition checklists tailored to your companion. Build steady pet nutrition habits that fit your pet’s breed and lifestyle.", delay: 'delay-500' },
+              { icon: "✨", title: "Magic Studio", desc: "Generate cinematic pet art and keep memories in one place. A creative space for Indian pet parents to celebrate their companions.", delay: 'delay-600' }
             ].map((item, i) => (
               <div key={i} className={`group p-12 rounded-[4rem] bg-brand-50 hover:bg-brand-900 transition-all duration-700 transform hover:-translate-y-4`}>
                 <div className="text-6xl mb-10 group-hover:scale-110 transition-transform duration-500">{item.icon}</div>
@@ -261,12 +248,12 @@ const LandingPage: React.FC<Props> = ({ onStart }) => {
           </div>
           <div className="md:hidden flex gap-5 overflow-x-auto pb-4 snap-x scrollbar-hide">
             {[
-              { icon: "📡", title: "Daily Pet Brief", desc: "Personalized walking index, hydration risk, and air safety." },
-              { icon: "🧭", title: "Safety Radar", desc: "Heat, humidity, and air quality with safe windows." },
-              { icon: "🏥", title: "Nearby Services", desc: "Clinics, groomers, and boarding with verified links." },
-              { icon: "⏰", title: "Care Reminders", desc: "Vaccines, deworming, grooming cycles." },
-              { icon: "✅", title: "Breed Checklists", desc: "Daily routines tailored to your companion." },
-              { icon: "✨", title: "Magic Studio", desc: "Cinematic pet art and memories." }
+              { icon: "📡", title: "Daily Pet Brief", desc: "Personalized walking index, hydration risk, and air safety. Daily Pet Brief supports pet health for Indian pet parents." },
+              { icon: "🧭", title: "Safety Radar", desc: "Heat, humidity, and air quality with safe windows. Pet safety alerts keep Indian pet parents informed." },
+              { icon: "🏥", title: "Nearby Services", desc: "Clinics, groomers, and boarding with verified links. Find nearby vet services fast." },
+              { icon: "⏰", title: "Care Reminders", desc: "Vaccines, deworming, grooming cycles. Pet health stays on track for Indian pet parents." },
+              { icon: "✅", title: "Breed Checklists", desc: "Daily routines tailored to your companion. Strong pet nutrition habits by breed." },
+              { icon: "✨", title: "Magic Studio", desc: "Cinematic pet art and memories. A creative space for Indian pet parents." }
             ].map((item) => (
               <div key={item.title} className="min-w-[240px] snap-center bg-brand-50 rounded-[2.5rem] p-6 border border-brand-100 shadow-sm">
                 <div className="text-4xl mb-4">{item.icon}</div>
@@ -278,8 +265,25 @@ const LandingPage: React.FC<Props> = ({ onStart }) => {
         </div>
       </section>
 
+      <div className="bg-white">
+        <div className="overflow-hidden border-y border-brand-100/50">
+          <div className="flex w-max animate-marquee text-[10px] font-black uppercase tracking-[0.3em] text-brand-400 py-4 px-6">
+            {Array.from({ length: 2 }).map((_, i) => (
+              <span key={i} className="flex items-center gap-6">
+                <span>Join the Pack</span>
+                <span className="text-brand-300">•</span>
+                <span>Try PawVeda for free</span>
+                <span className="text-brand-300">•</span>
+                <span>Adopt. Don’t Shop.</span>
+                <span className="text-brand-300">•</span>
+              </span>
+            ))}
+          </div>
+        </div>
+      </div>
+
       {/* Testimonials + Brand Partners */}
-      <section className="py-32 px-6 bg-brand-50">
+      <section className="py-28 px-6 bg-brand-50">
         <div className="max-w-7xl mx-auto space-y-16">
           <div className="text-center">
             <span className="text-brand-500 font-black text-[10px] uppercase tracking-[0.3em] mb-4 block">Loved by Parents</span>
@@ -311,9 +315,26 @@ const LandingPage: React.FC<Props> = ({ onStart }) => {
         </div>
       </section>
 
+      <div className="bg-brand-50">
+        <div className="overflow-hidden border-y border-brand-200/40">
+          <div className="flex w-max animate-marquee text-[10px] font-black uppercase tracking-[0.3em] text-brand-400 py-4 px-6">
+            {Array.from({ length: 2 }).map((_, i) => (
+              <span key={i} className="flex items-center gap-6">
+                <span>Join the Pack</span>
+                <span className="text-brand-300">•</span>
+                <span>Try PawVeda for free</span>
+                <span className="text-brand-300">•</span>
+                <span>Adopt. Don’t Shop.</span>
+                <span className="text-brand-300">•</span>
+              </span>
+            ))}
+          </div>
+        </div>
+      </div>
+
       {/* Animal Types Carousel */}
-      <section className="py-32 bg-neutral-dark overflow-hidden relative">
-        <div className="max-w-7xl mx-auto px-6 mb-20 text-center">
+      <section className="py-24 md:py-28 bg-neutral-dark overflow-hidden relative">
+        <div className="max-w-7xl mx-auto px-6 mb-12 md:mb-16 text-center">
           <span className="text-brand-500 font-black text-[10px] uppercase tracking-[0.3em] mb-4 block">Inclusive Intelligence</span>
           <h2 className="text-4xl md:text-5xl font-display font-bold text-white tracking-tight">Care for Every Companion</h2>
           <p className="text-white/60 text-lg mt-6 max-w-3xl mx-auto italic">
@@ -325,21 +346,40 @@ const LandingPage: React.FC<Props> = ({ onStart }) => {
         </div>
 
         {/* Endless Carousel */}
-        <div className="flex gap-10 animate-scroll md:whitespace-nowrap px-10 py-4 overflow-x-auto md:overflow-visible snap-x scrollbar-hide">
-          {[...animalTypes, ...animalTypes, ...animalTypes].map((animal, i) => (
-            <div key={i} className="inline-flex items-center gap-8 bg-white/5 backdrop-blur-2xl border border-white/10 p-8 rounded-[3.5rem] min-w-[280px] snap-center hover:bg-white/10 transition-all group cursor-pointer hover:border-brand-500/50">
-              <div className="text-6xl group-hover:scale-125 transition-transform duration-500">{animal.icon}</div>
-              <div className="whitespace-normal">
-                <p className="text-white font-display font-bold text-xl mb-1">{animal.name}</p>
-                <p className="text-brand-500 text-[10px] font-black uppercase tracking-[0.2em]">{animal.feature}</p>
+        <div className="overflow-hidden">
+          <div className="flex gap-8 md:gap-10 animate-scroll w-max px-6 md:px-10 py-4">
+            {[...animalTypes, ...animalTypes].map((animal, i) => (
+              <div key={i} className="inline-flex items-center gap-6 md:gap-8 bg-white/5 backdrop-blur-2xl border border-white/10 p-7 md:p-8 rounded-[3.5rem] min-w-[240px] md:min-w-[280px] shrink-0 hover:bg-white/10 transition-all group cursor-pointer hover:border-brand-500/50">
+                <div className="text-5xl md:text-6xl group-hover:scale-125 transition-transform duration-500">{animal.icon}</div>
+                <div className="whitespace-normal">
+                  <p className="text-white font-display font-bold text-lg md:text-xl mb-1">{animal.name}</p>
+                  <p className="text-brand-500 text-[10px] font-black uppercase tracking-[0.2em]">{animal.feature}</p>
+                </div>
               </div>
-            </div>
-          ))}
+            ))}
+          </div>
         </div>
 
         <div className="absolute top-0 left-0 w-40 h-full bg-gradient-to-r from-neutral-dark to-transparent z-10"></div>
         <div className="absolute top-0 right-0 w-40 h-full bg-gradient-to-l from-neutral-dark to-transparent z-10"></div>
       </section>
+
+      <div className="bg-neutral-dark">
+        <div className="overflow-hidden border-y border-white/10">
+          <div className="flex w-max animate-marquee text-[10px] font-black uppercase tracking-[0.3em] text-brand-200 py-4 px-6">
+            {Array.from({ length: 2 }).map((_, i) => (
+              <span key={i} className="flex items-center gap-6">
+                <span>Join the Pack</span>
+                <span className="text-brand-500/60">•</span>
+                <span>Try PawVeda for free</span>
+                <span className="text-brand-500/60">•</span>
+                <span>Adopt. Don’t Shop.</span>
+                <span className="text-brand-500/60">•</span>
+              </span>
+            ))}
+          </div>
+        </div>
+      </div>
 
       {/* Adoption Preview */}
       <section className="py-32 px-6 bg-white">
@@ -354,7 +394,7 @@ const LandingPage: React.FC<Props> = ({ onStart }) => {
           <div className="flex gap-6 overflow-x-auto snap-x scrollbar-hide pb-4">
             {adoptionPets.map((pet) => (
               <div key={pet.name} className="min-w-[260px] snap-center bg-brand-50 rounded-[2.5rem] overflow-hidden border border-brand-100 shadow-sm">
-                <img src={pet.photo} alt={pet.name} className="w-full h-44 object-cover" />
+                <img src={pet.photo} alt={`${pet.breed} pet available for adoption in ${pet.city}, India`} className="w-full h-44 object-cover" loading="lazy" />
                 <div className="p-5 space-y-2">
                   <p className="text-lg font-display font-black text-brand-900">{pet.name}</p>
                   <p className="text-sm text-brand-800/60">{pet.breed}</p>
@@ -373,6 +413,23 @@ const LandingPage: React.FC<Props> = ({ onStart }) => {
           </div>
         </div>
       </section>
+
+      <div className="bg-white">
+        <div className="overflow-hidden border-y border-brand-100/50">
+          <div className="flex w-max animate-marquee text-[10px] font-black uppercase tracking-[0.3em] text-brand-400 py-4 px-6">
+            {Array.from({ length: 2 }).map((_, i) => (
+              <span key={i} className="flex items-center gap-6">
+                <span>Join the Pack</span>
+                <span className="text-brand-300">•</span>
+                <span>Try PawVeda for free</span>
+                <span className="text-brand-300">•</span>
+                <span>Adopt. Don’t Shop.</span>
+                <span className="text-brand-300">•</span>
+              </span>
+            ))}
+          </div>
+        </div>
+      </div>
 
       {/* Pricing Section */}
       <section className="py-40 px-6 max-w-7xl mx-auto">
@@ -426,6 +483,23 @@ const LandingPage: React.FC<Props> = ({ onStart }) => {
           ))}
         </div>
       </section>
+
+      <div className="bg-[#FAF8F6]">
+        <div className="overflow-hidden border-y border-brand-200/40">
+          <div className="flex w-max animate-marquee text-[10px] font-black uppercase tracking-[0.3em] text-brand-400 py-4 px-6">
+            {Array.from({ length: 2 }).map((_, i) => (
+              <span key={i} className="flex items-center gap-6">
+                <span>Join the Pack</span>
+                <span className="text-brand-300">•</span>
+                <span>Try PawVeda for free</span>
+                <span className="text-brand-300">•</span>
+                <span>Adopt. Don’t Shop.</span>
+                <span className="text-brand-300">•</span>
+              </span>
+            ))}
+          </div>
+        </div>
+      </div>
 
       {/* Bottom CTA Interest Form */}
       <section className="py-40 px-6 bg-brand-50">
@@ -530,6 +604,7 @@ const LandingPage: React.FC<Props> = ({ onStart }) => {
               src="https://images.unsplash.com/photo-1541364983171-a8ba01e95cfc?auto=format&fit=crop&q=80&w=1200" 
               className="absolute inset-0 w-full h-full object-cover group-hover:scale-110 transition-transform duration-[5s]" 
               alt="Interest Form Background"
+              loading="lazy"
             />
             <div className="absolute inset-0 bg-brand-900/40 backdrop-blur-[2px] flex flex-col items-center justify-center p-20 text-center">
               <div className="bg-white/10 backdrop-blur-xl border border-white/20 p-12 rounded-[4rem] text-white">
@@ -543,20 +618,24 @@ const LandingPage: React.FC<Props> = ({ onStart }) => {
         </div>
       </section>
 
-      <footer className="py-20 border-t border-brand-100 text-center">
-        <div className="flex flex-col items-center gap-12">
+      <div className="py-8 text-center">
+        <p className="text-brand-800/40 text-xs font-medium">Trusted by pet parents in Bengaluru, Mumbai, Pune, and Delhi NCR.</p>
+      </div>
+
+      <footer className="py-16 border-t border-brand-100 text-center">
+        <div className="flex flex-col items-center gap-8">
           <div className="flex items-center gap-2">
             <div className="w-8 h-8 bg-brand-900 rounded-lg flex items-center justify-center text-white font-display font-bold text-sm">P</div>
             <span className="text-xl font-display font-bold text-brand-900 tracking-tighter">PawVeda</span>
           </div>
-          <div className="flex gap-12 text-sm font-bold text-brand-800/40 uppercase tracking-widest">
+          <div className="flex flex-wrap justify-center gap-6 sm:gap-10 text-sm font-bold text-brand-800/40 uppercase tracking-widest px-6">
             <a href="#" className="hover:text-brand-500 transition-colors">Privacy</a>
             <a href="#" className="hover:text-brand-500 transition-colors">Terms</a>
             <a href="#" className="hover:text-brand-500 transition-colors">Safety</a>
             <a href="#" className="hover:text-brand-500 transition-colors">Support</a>
           </div>
-          <p className="text-brand-800/20 text-xs font-medium">
-            © 2024 PawVeda Intelligence. Built for the modern Indian pet parent.
+          <p className="text-brand-800/20 text-xs font-medium max-w-sm sm:max-w-xl px-6">
+            © 2026 PawVeda Intelligence. Built for the modern Indian pet parent — with love, the PawVeda founders.
           </p>
         </div>
       </footer>
@@ -572,9 +651,16 @@ const LandingPage: React.FC<Props> = ({ onStart }) => {
         .animate-scroll:hover {
           animation-play-state: paused;
         }
+        .animate-marquee {
+          animation: marquee 18s linear infinite;
+        }
         @keyframes reveal {
           0% { opacity: 0; transform: translateY(20px); }
           100% { opacity: 1; transform: translateY(0); }
+        }
+        @keyframes marquee {
+          0% { transform: translateX(0); }
+          100% { transform: translateX(-50%); }
         }
         .animate-reveal {
           animation: reveal 0.8s cubic-bezier(0.16, 1, 0.3, 1) forwards;
