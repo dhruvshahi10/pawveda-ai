@@ -6,6 +6,8 @@ import Auth from './components/Auth';
 import Onboarding from './components/Onboarding';
 import OrgOnboarding from './components/OrgOnboarding';
 import Dashboard from './components/Dashboard';
+import PillarPage from './components/PillarPage';
+import BlogPage from './components/BlogPage';
 import { clearAuthSession, coerceRole, getAuthSession, getDefaultUserState, getPostAuthPath, hydrateUserState, persistUserState, resolveRole, setAuthSession } from './lib/auth';
 import { apiClient } from './services/apiClient';
 import { PetData, UserState } from './types';
@@ -222,6 +224,8 @@ const AppRoutes: React.FC<{
 
   return (
     <Routes>
+      <Route path="/guides/:pillar" element={<PillarPage />} />
+      <Route path="/blog/:petType/:slug" element={<BlogPage />} />
       <Route
         path="/"
         element={user.isLoggedIn ? <Navigate to={getPostAuthPath(user)} replace /> : <LandingPage onStart={handleStart} />}

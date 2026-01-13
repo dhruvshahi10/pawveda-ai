@@ -7,3 +7,42 @@
 body {
   margin: 0;
 }
+
+.page-shell {
+  min-height: 100vh;
+  background: #faf8f6;
+  color: #1c1c1c;
+  padding: 64px 24px;
+}
+
+.content {
+  max-width: 760px;
+  margin: 0 auto;
+}
+
+.content-body h1,
+.content-body h2,
+.content-body h3 {
+  font-family: "Georgia", "Times New Roman", serif;
+  margin: 32px 0 12px;
+}
+
+.content-body p {
+  line-height: 1.65;
+  margin: 0 0 16px;
+}
+
+.content-body ul,
+.content-body ol {
+  padding-left: 20px;
+  margin: 0 0 16px;
+}
+
+.content-body li {
+  margin: 0 0 8px;
+}
+
+.content-link {
+  color: #6b4f3f;
+  text-decoration: underline;
+}
