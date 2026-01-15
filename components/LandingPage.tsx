@@ -1,5 +1,6 @@
 
 import React, { useEffect, useMemo, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { getCountries, getCountryCallingCode, parsePhoneNumberFromString } from 'libphonenumber-js';
 import { apiClient } from '../services/apiClient';
 
@@ -38,6 +39,11 @@ const LandingPage: React.FC<Props> = ({ onStart }) => {
   const [formSubmitted, setFormSubmitted] = useState(false);
   const [email, setEmail] = useState('');
   const [premiumInterest, setPremiumInterest] = useState<string[]>([]);
+  const [interestOpen, setInterestOpen] = useState(false);
+  const [activeFeature, setActiveFeature] = useState<string | null>(null);
+  const previewRef = React.useRef<HTMLDivElement | null>(null);
+  const [isMobile, setIsMobile] = useState(false);
+  const [flipSide, setFlipSide] = useState<'preview' | 'details'>('preview');
   const [phoneCountry, setPhoneCountry] = useState('IN');
   const [phoneNumber, setPhoneNumber] = useState('');
   const [formError, setFormError] = useState('');
@@ -53,6 +59,39 @@ const LandingPage: React.FC<Props> = ({ onStart }) => {
       clearInterval(quoteInterval);
     };
   }, []);
+
+  useEffect(() => {
+    const update = () => {
+      if (typeof window === 'undefined') return;
+      setIsMobile(window.innerWidth < 1024);
+    };
+    update();
+    window.addEventListener('resize', update);
+    return () => {
+      window.removeEventListener('resize', update);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!isMobile || !activeFeature) return;
+    setFlipSide('preview');
+    const interval = window.setInterval(() => {
+      setFlipSide(prev => (prev === 'preview' ? 'details' : 'preview'));
+    }, 4000);
+    return () => {
+      window.clearInterval(interval);
+    };
+  }, [isMobile, activeFeature]);
+
+  useEffect(() => {
+    if (!activeFeature || !previewRef.current || typeof window === 'undefined') return;
+    const isMobile = window.innerWidth < 1024;
+    if (!isMobile) return;
+    const node = previewRef.current;
+    window.setTimeout(() => {
+      node.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }, 120);
+  }, [activeFeature]);
 
   const countries = useMemo(() => {
     const displayNames =
@@ -230,38 +269,281 @@ const LandingPage: React.FC<Props> = ({ onStart }) => {
             <span className="text-brand-500 font-black text-[10px] uppercase tracking-[0.3em] mb-4 block">Pawveda Intelligence</span>
             <h2 className="text-4xl md:text-5xl font-display font-black text-brand-900">What does your paw companion get?</h2>
           </div>
-          <div className="hidden md:grid md:grid-cols-3 gap-16">
-            {[
-              { icon: "📡", title: "Daily Pet Brief", desc: "Personalized walking index, hydration risk, and air safety based on your city and breed. Daily Pet Brief helps Indian pet parents make smarter pet health decisions using local weather and breed-specific insights.", delay: 'delay-100' },
-              { icon: "🧭", title: "Safety Radar", desc: "Heat, humidity, and air quality signals with safe walk windows and actions. It improves pet safety for Indian pet parents with clear alerts.", delay: 'delay-200' },
-              { icon: "🏥", title: "Nearby Services", desc: "Find clinics, groomers, and boarding quickly with map-verified links. Discover nearby vet services when you need trusted local care.", delay: 'delay-300' },
-              { icon: "⏰", title: "Care Reminders", desc: "Vaccines, deworming, grooming, and checkups — never miss a cycle. Consistent reminders protect pet health for busy Indian pet parents.", delay: 'delay-400' },
-              { icon: "✅", title: "Breed Checklists", desc: "Daily routines and nutrition checklists tailored to your companion. Build steady pet nutrition habits that fit your pet’s breed and lifestyle.", delay: 'delay-500' },
-              { icon: "✨", title: "Magic Studio", desc: "Generate cinematic pet art and keep memories in one place. A creative space for Indian pet parents to celebrate their companions.", delay: 'delay-600' }
-            ].map((item, i) => (
-              <div key={i} className={`group p-12 rounded-[4rem] bg-brand-50 hover:bg-brand-900 transition-all duration-700 transform hover:-translate-y-4`}>
-                <div className="text-6xl mb-10 group-hover:scale-110 transition-transform duration-500">{item.icon}</div>
-                <h3 className="text-3xl font-display font-bold mb-6 text-brand-900 group-hover:text-white transition-colors">{item.title}</h3>
-                <p className="text-brand-800/60 group-hover:text-white/70 leading-relaxed font-light text-lg transition-colors">{item.desc}</p>
+          {(() => {
+            const features = [
+              {
+                id: 'daily-brief',
+                icon: '📡',
+                title: 'Daily Pet Brief',
+                summary: 'Personalized walk windows, hydration risk, and air-safety tuned to your city + breed.',
+                highlight: 'Safe walk window in seconds',
+                bullets: ['Heat + AQI aware', 'Breed-specific hydration tips', 'Daily micro-advice'],
+                metrics: [
+                  { label: 'Safe Walk', value: '6:15–7:10 AM' },
+                  { label: 'Heat Index', value: 'High' },
+                  { label: 'Hydration', value: '+250 ml' }
+                ]
+              },
+              {
+                id: 'safety-radar',
+                icon: '🧭',
+                title: 'Safety Radar',
+                summary: 'Live alerts for heat, humidity, and air quality with exact actions to take.',
+                highlight: 'City-grade safety alerts',
+                bullets: ['Heatwave warnings', 'Air-quality advisories', 'Paw-surface alerts'],
+                metrics: [
+                  { label: 'PM2.5', value: '86' },
+                  { label: 'Humidity', value: '78%' },
+                  { label: 'Paw Risk', value: 'Moderate' }
+                ]
+              },
+              {
+                id: 'nutriscan',
+                icon: '🥗',
+                title: 'NutriScan AI',
+                summary: 'Scan Indian meals and get instant safety checks for dal, curd, spices, and oils.',
+                highlight: 'Food safety in one scan',
+                bullets: ['Indian food toxicity map', 'Ingredient risk flags', 'Portion guidance'],
+                metrics: [
+                  { label: 'Dish', value: 'Moong Dal' },
+                  { label: 'Risk', value: 'Low' },
+                  { label: 'Notes', value: 'Skip tadka' }
+                ]
+              },
+              {
+                id: 'care-reminders',
+                icon: '⏰',
+                title: 'Care Reminders',
+                summary: 'Vaccines, deworming, grooming, and checkups—always on time.',
+                highlight: 'Never miss a cycle',
+                bullets: ['Auto-scheduled reminders', 'Smart nudges', 'Care history log'],
+                metrics: [
+                  { label: 'Next Vaccine', value: '12 Apr' },
+                  { label: 'Deworm', value: '28 Apr' },
+                  { label: 'Groom', value: 'Monthly' }
+                ]
+              },
+              {
+                id: 'streaks',
+                icon: '✅',
+                title: 'Care Streak Checklist',
+                summary: 'Daily routines and nutrition checklists that build real habits.',
+                highlight: 'Consistency made visible',
+                bullets: ['Breed-specific routines', 'Smart daily check-ins', 'Streak badges'],
+                metrics: [
+                  { label: 'Streak', value: '12 days' },
+                  { label: 'Today', value: '3/4 done' },
+                  { label: 'Badge', value: 'Gold' }
+                ]
+              },
+              {
+                id: 'training',
+                icon: '🎯',
+                title: 'Pet Training Coach',
+                summary: 'Short, daily drills tailored to age, breed, and environment.',
+                highlight: 'Training in 6 minutes',
+                bullets: ['Behavioral micro-lessons', 'City-friendly drills', 'Progress track'],
+                metrics: [
+                  { label: 'Focus', value: 'Recall' },
+                  { label: 'Time', value: '6 mins' },
+                  { label: 'Progress', value: '+18%' }
+                ]
+              },
+              {
+                id: 'nearby',
+                icon: '🏥',
+                title: 'Nearby Services',
+                summary: 'Clinics, groomers, boarding, and emergency care with verified links.',
+                highlight: 'Trusted care, nearby',
+                bullets: ['Map-verified listings', 'Emergency shortcuts', 'Local ratings'],
+                metrics: [
+                  { label: 'Closest Vet', value: '1.2 km' },
+                  { label: 'Open Now', value: '3 clinics' },
+                  { label: 'Response', value: 'Instant' }
+                ]
+              },
+              {
+                id: 'studio',
+                icon: '✨',
+                title: 'Magic Studio',
+                summary: 'Cinematic pet art, memory reels, and shareable cards.',
+                highlight: 'Create unforgettable moments',
+                bullets: ['AI art styles', 'Memory timeline', 'Share-ready exports'],
+                metrics: [
+                  { label: 'Style', value: 'Royal Portrait' },
+                  { label: 'Render', value: '4K' },
+                  { label: 'Share', value: '1-tap' }
+                ]
+              }
+            ];
+
+            const current = activeFeature ? features.find(item => item.id === activeFeature) : null;
+
+            return (
+              <div className="space-y-10">
+                <div className="flex gap-6 overflow-x-auto pb-4 snap-x scrollbar-hide">
+                  {features.map((item, index) => {
+                    const microCopy = index % 2 === 0 ? 'Reveal' : 'Explore';
+                    const isActive = activeFeature === item.id;
+                    return (
+                    <button
+                      key={item.id}
+                      type="button"
+                      onClick={() => setActiveFeature(prev => (prev === item.id ? null : item.id))}
+                      className={`min-w-[240px] snap-center text-left rounded-[2.5rem] p-6 border transition-all ${
+                        isActive
+                          ? 'bg-brand-900 text-white border-brand-900 shadow-2xl'
+                          : 'bg-brand-50 border-brand-100 hover:border-brand-500/60'
+                      }`}
+                    >
+                      <div className="flex items-center justify-between">
+                        <span className="text-3xl">{item.icon}</span>
+                        <span className={`text-[9px] font-black uppercase tracking-[0.3em] ${isActive ? 'text-brand-200' : 'text-brand-400'}`}>
+                          {microCopy}
+                        </span>
+                      </div>
+                      <h3 className={`text-xl font-display font-black mt-4 ${isActive ? 'text-white' : 'text-brand-900'}`}>
+                        {item.title}
+                      </h3>
+                      <p className={`text-sm mt-3 ${isActive ? 'text-white/70' : 'text-brand-800/60'}`}>
+                        {item.summary}
+                      </p>
+                    </button>
+                  )})}
+                </div>
+
+                <div
+                  ref={previewRef}
+                  className={`transition-all duration-500 ${current ? 'opacity-100 translate-y-0 max-h-[1400px]' : 'opacity-0 -translate-y-4 max-h-0 overflow-hidden'}`}
+                >
+                  {current && (
+                    <>
+                      {isMobile ? (
+                        <div className="space-y-6">
+                          <div className="relative" style={{ perspective: '1200px' }}>
+                            <div
+                              className="transition-transform duration-700"
+                              style={{
+                                transformStyle: 'preserve-3d',
+                                transform: flipSide === 'preview' ? 'rotateY(0deg)' : 'rotateY(180deg)'
+                              }}
+                            >
+                              <div
+                                className="relative overflow-hidden rounded-[3rem] border border-brand-100 bg-gradient-to-br from-[#1f130b] via-[#3c2415] to-[#5b3a25] text-white p-10 shadow-[0_40px_90px_-50px_rgba(82,54,26,0.7)]"
+                                style={{ backfaceVisibility: 'hidden' }}
+                              >
+                                <div className="absolute -top-10 -right-10 w-40 h-40 bg-brand-500/30 rounded-full blur-3xl" />
+                                <div className="absolute bottom-0 left-0 w-full h-40 bg-gradient-to-t from-black/40 to-transparent" />
+                                <div className="relative space-y-6">
+                                  <div className="flex items-center gap-4">
+                                    <div className="w-12 h-12 rounded-2xl bg-brand-500/30 flex items-center justify-center text-2xl">{current.icon}</div>
+                                    <div>
+                                      <p className="text-[10px] font-black uppercase tracking-[0.4em] text-brand-200">Feature Preview</p>
+                                      <h3 className="text-2xl font-display font-black">{current.title}</h3>
+                                    </div>
+                                  </div>
+                                  <p className="text-white/80 text-sm max-w-xl">{current.highlight}</p>
+                                  <div className="grid gap-4">
+                                    {current.metrics.map(metric => (
+                                      <div key={metric.label} className="bg-white/10 border border-white/10 rounded-2xl p-4">
+                                        <p className="text-[10px] uppercase tracking-[0.3em] text-brand-200">{metric.label}</p>
+                                        <p className="text-lg font-black mt-2">{metric.value}</p>
+                                      </div>
+                                    ))}
+                                  </div>
+                                </div>
+                              </div>
+
+                              <div
+                                className="absolute inset-0 bg-white border border-brand-100 rounded-[3rem] p-8 shadow-lg space-y-6"
+                                style={{ backfaceVisibility: 'hidden', transform: 'rotateY(180deg)' }}
+                              >
+                                <p className="text-[10px] font-black uppercase tracking-[0.35em] text-brand-500">What you get</p>
+                                <h3 className="text-3xl font-display font-black text-brand-900">{current.title}</h3>
+                                <p className="text-sm text-brand-800/70">{current.summary}</p>
+                                <ul className="space-y-3 text-sm text-brand-800/70">
+                                  {current.bullets.map(point => (
+                                    <li key={point} className="flex items-start gap-3">
+                                      <span className="w-6 h-6 rounded-full bg-brand-900 text-white flex items-center justify-center text-[10px] font-black">✓</span>
+                                      <span>{point}</span>
+                                    </li>
+                                  ))}
+                                </ul>
+                                <button
+                                  onClick={() => onStart('signup')}
+                                  className="w-full bg-brand-900 text-white py-4 rounded-[2rem] font-black uppercase tracking-[0.3em] text-[10px] hover:bg-brand-500 transition-colors"
+                                >
+                                  Try this feature
+                                </button>
+                              </div>
+                            </div>
+                          </div>
+
+                          <div className="bg-brand-50 border border-brand-100 rounded-[2rem] px-5 py-4 flex items-center justify-between">
+                            <div>
+                              <p className="text-[9px] font-black uppercase tracking-[0.35em] text-brand-500">Next up</p>
+                              <p className="text-sm font-bold text-brand-900">{features[(features.findIndex(item => item.id === current.id) + 1) % features.length].title}</p>
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <span className="w-16 h-[2px] bg-brand-200 rounded-full">
+                                <span className="block h-full w-1/2 bg-brand-500 animate-pulse"></span>
+                              </span>
+                              <span className="text-[10px] font-black uppercase tracking-[0.3em] text-brand-400">Auto</span>
+                            </div>
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="grid lg:grid-cols-[1.2fr_1fr] gap-8">
+                          <div className="relative overflow-hidden rounded-[3rem] border border-brand-100 bg-gradient-to-br from-[#1f130b] via-[#3c2415] to-[#5b3a25] text-white p-10 shadow-[0_40px_90px_-50px_rgba(82,54,26,0.7)]">
+                            <div className="absolute -top-10 -right-10 w-40 h-40 bg-brand-500/30 rounded-full blur-3xl" />
+                            <div className="absolute bottom-0 left-0 w-full h-40 bg-gradient-to-t from-black/40 to-transparent" />
+                            <div className="relative space-y-6">
+                              <div className="flex items-center gap-4">
+                                <div className="w-12 h-12 rounded-2xl bg-brand-500/30 flex items-center justify-center text-2xl">{current.icon}</div>
+                                <div>
+                                  <p className="text-[10px] font-black uppercase tracking-[0.4em] text-brand-200">Feature Preview</p>
+                                  <h3 className="text-2xl font-display font-black">{current.title}</h3>
+                                </div>
+                              </div>
+                              <p className="text-white/80 text-sm max-w-xl">{current.highlight}</p>
+                              <div className="grid sm:grid-cols-3 gap-4">
+                                {current.metrics.map(metric => (
+                                  <div key={metric.label} className="bg-white/10 border border-white/10 rounded-2xl p-4">
+                                    <p className="text-[10px] uppercase tracking-[0.3em] text-brand-200">{metric.label}</p>
+                                    <p className="text-lg font-black mt-2">{metric.value}</p>
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          </div>
+
+                          <div className="bg-white border border-brand-100 rounded-[3rem] p-8 shadow-lg space-y-6">
+                            <p className="text-[10px] font-black uppercase tracking-[0.35em] text-brand-500">What you get</p>
+                            <h3 className="text-3xl font-display font-black text-brand-900">{current.title}</h3>
+                            <p className="text-sm text-brand-800/70">{current.summary}</p>
+                            <ul className="space-y-3 text-sm text-brand-800/70">
+                              {current.bullets.map(point => (
+                                <li key={point} className="flex items-start gap-3">
+                                  <span className="w-6 h-6 rounded-full bg-brand-900 text-white flex items-center justify-center text-[10px] font-black">✓</span>
+                                  <span>{point}</span>
+                                </li>
+                              ))}
+                            </ul>
+                            <button
+                              onClick={() => onStart('signup')}
+                              className="w-full bg-brand-900 text-white py-4 rounded-[2rem] font-black uppercase tracking-[0.3em] text-[10px] hover:bg-brand-500 transition-colors"
+                            >
+                              Try this feature
+                            </button>
+                          </div>
+                        </div>
+                      )}
+                    </>
+                  )}
+                </div>
               </div>
-            ))}
-          </div>
-          <div className="md:hidden flex gap-5 overflow-x-auto pb-4 snap-x scrollbar-hide">
-            {[
-              { icon: "📡", title: "Daily Pet Brief", desc: "Personalized walking index, hydration risk, and air safety. Daily Pet Brief supports pet health for Indian pet parents." },
-              { icon: "🧭", title: "Safety Radar", desc: "Heat, humidity, and air quality with safe windows. Pet safety alerts keep Indian pet parents informed." },
-              { icon: "🏥", title: "Nearby Services", desc: "Clinics, groomers, and boarding with verified links. Find nearby vet services fast." },
-              { icon: "⏰", title: "Care Reminders", desc: "Vaccines, deworming, grooming cycles. Pet health stays on track for Indian pet parents." },
-              { icon: "✅", title: "Breed Checklists", desc: "Daily routines tailored to your companion. Strong pet nutrition habits by breed." },
-              { icon: "✨", title: "Magic Studio", desc: "Cinematic pet art and memories. A creative space for Indian pet parents." }
-            ].map((item) => (
-              <div key={item.title} className="min-w-[240px] snap-center bg-brand-50 rounded-[2.5rem] p-6 border border-brand-100 shadow-sm">
-                <div className="text-4xl mb-4">{item.icon}</div>
-                <h3 className="text-xl font-display font-black text-brand-900 mb-3">{item.title}</h3>
-                <p className="text-sm text-brand-800/60 leading-relaxed">{item.desc}</p>
-              </div>
-            ))}
-          </div>
+            );
+          })()}
         </div>
       </section>
 
@@ -564,25 +846,53 @@ const LandingPage: React.FC<Props> = ({ onStart }) => {
                     <p className="text-sm font-bold uppercase tracking-[0.25em] text-brand-500">Pick what excites you</p>
                     <span className="text-xs text-brand-800/50">Multiple select</span>
                   </div>
-                  <div className="flex flex-wrap gap-3">
-                    {interestOptions.map((option) => {
-                      const selected = premiumInterest.includes(option);
-                      return (
-                        <button
-                          key={option}
-                          type="button"
-                          onClick={() => toggleInterest(option)}
-                          className={`px-5 py-3 rounded-[999px] border-2 text-sm font-semibold transition-all ${
-                            selected
-                              ? 'bg-brand-900 text-white border-brand-900 shadow-lg'
-                              : 'bg-[#FAF8F6] text-brand-900 border-brand-100 hover:border-brand-500/60'
-                          }`}
-                          aria-pressed={selected}
-                        >
-                          {selected ? '✓ ' : ''}{option}
-                        </button>
-                      );
-                    })}
+                  <div className="relative">
+                    <button
+                      type="button"
+                      onClick={() => setInterestOpen(prev => !prev)}
+                      className={`w-full flex items-center justify-between gap-4 rounded-[2.5rem] border-2 px-8 py-5 text-left text-sm font-semibold transition-all ${
+                        interestOpen ? 'border-brand-500/60 shadow-lg bg-white' : 'border-brand-100 bg-[#FAF8F6]'
+                      }`}
+                      aria-expanded={interestOpen}
+                    >
+                      <span className="text-brand-900">
+                        {premiumInterest.length ? `${premiumInterest.length} selected` : 'Select features'}
+                      </span>
+                      <span
+                        className={`text-xs font-black uppercase tracking-[0.3em] text-brand-500 transition-transform ${
+                          interestOpen ? 'rotate-180' : ''
+                        }`}
+                      >
+                        ▼
+                      </span>
+                    </button>
+                    <div
+                      className={`mt-3 overflow-hidden rounded-[2rem] border border-brand-100 bg-white shadow-2xl transition-all duration-300 ${
+                        interestOpen ? 'max-h-80 opacity-100 translate-y-0' : 'max-h-0 opacity-0 -translate-y-2'
+                      }`}
+                    >
+                      <div className="p-4 space-y-2 max-h-64 overflow-y-auto">
+                        {interestOptions.map(option => {
+                          const selected = premiumInterest.includes(option);
+                          return (
+                            <label
+                              key={option}
+                              className={`flex items-center justify-between gap-4 rounded-[1.5rem] px-4 py-3 text-sm font-semibold transition-colors ${
+                                selected ? 'bg-brand-900 text-white' : 'bg-brand-50 text-brand-900 hover:bg-brand-100/60'
+                              }`}
+                            >
+                              <span>{option}</span>
+                              <input
+                                type="checkbox"
+                                checked={selected}
+                                onChange={() => toggleInterest(option)}
+                                className="accent-brand-500 h-4 w-4"
+                              />
+                            </label>
+                          );
+                        })}
+                      </div>
+                    </div>
                   </div>
                 </div>
                 {formError && (
@@ -618,6 +928,69 @@ const LandingPage: React.FC<Props> = ({ onStart }) => {
         </div>
       </section>
 
+      <section className="py-24 px-6 bg-[#FAF8F6]">
+        <div className="max-w-7xl mx-auto">
+          <div className="flex flex-col lg:flex-row lg:items-end justify-between gap-10 mb-12">
+            <div className="space-y-4 max-w-2xl">
+              <p className="text-[10px] font-black uppercase tracking-[0.4em] text-brand-500">Knowledge Library</p>
+              <h2 className="text-4xl md:text-5xl font-display font-black text-brand-900">Guides and blogs worth saving.</h2>
+              <p className="text-brand-800/60 text-base">
+                Explore deep-dive guides and practical blog posts tailored to Indian climates, breeds, and daily routines.
+              </p>
+            </div>
+            <div className="flex flex-wrap gap-3">
+              <Link
+                to="/guides"
+                className="px-6 py-3 rounded-full border-2 border-brand-900 text-brand-900 text-[10px] font-black uppercase tracking-[0.35em] hover:bg-brand-900 hover:text-white transition-colors"
+              >
+                Browse Guides
+              </Link>
+              <Link
+                to="/blog"
+                className="px-6 py-3 rounded-full bg-brand-900 text-white text-[10px] font-black uppercase tracking-[0.35em] shadow-lg hover:bg-brand-500 transition-colors"
+              >
+                Read Blog
+              </Link>
+            </div>
+          </div>
+
+          <div className="grid md:grid-cols-2 gap-6">
+            <Link
+              to="/guides"
+              className="group bg-white border border-brand-50 rounded-[3rem] p-8 shadow-sm hover:shadow-xl transition-all"
+            >
+              <div className="flex items-center justify-between">
+                <p className="text-[10px] font-black uppercase tracking-[0.4em] text-brand-500">Guides</p>
+                <span className="text-2xl">📚</span>
+              </div>
+              <h3 className="text-2xl font-display font-black text-brand-900 mt-6">Pillars of daily care</h3>
+              <p className="text-sm text-brand-800/60 mt-3">
+                Nutrition, safety, and routines — long-form guidance built for Indian pet parents.
+              </p>
+              <span className="mt-6 inline-flex text-[10px] font-black uppercase tracking-[0.35em] text-brand-900 group-hover:text-brand-500 transition-colors">
+                Explore Guides →
+              </span>
+            </Link>
+            <Link
+              to="/blog"
+              className="group bg-white border border-brand-50 rounded-[3rem] p-8 shadow-sm hover:shadow-xl transition-all"
+            >
+              <div className="flex items-center justify-between">
+                <p className="text-[10px] font-black uppercase tracking-[0.4em] text-brand-500">Blog</p>
+                <span className="text-2xl">🗞️</span>
+              </div>
+              <h3 className="text-2xl font-display font-black text-brand-900 mt-6">Latest insights</h3>
+              <p className="text-sm text-brand-800/60 mt-3">
+                Quick, actionable posts you can share with your vet or save for later.
+              </p>
+              <span className="mt-6 inline-flex text-[10px] font-black uppercase tracking-[0.35em] text-brand-900 group-hover:text-brand-500 transition-colors">
+                Read Blog →
+              </span>
+            </Link>
+          </div>
+        </div>
+      </section>
+
       <div className="py-8 text-center">
         <p className="text-brand-800/40 text-xs font-medium">Trusted by pet parents in Bengaluru, Mumbai, Pune, and Delhi NCR.</p>
       </div>
@@ -629,10 +1002,10 @@ const LandingPage: React.FC<Props> = ({ onStart }) => {
             <span className="text-xl font-display font-bold text-brand-900 tracking-tighter">PawVeda</span>
           </div>
           <div className="flex flex-wrap justify-center gap-6 sm:gap-10 text-sm font-bold text-brand-800/40 uppercase tracking-widest px-6">
-            <a href="#" className="hover:text-brand-500 transition-colors">Privacy</a>
-            <a href="#" className="hover:text-brand-500 transition-colors">Terms</a>
-            <a href="#" className="hover:text-brand-500 transition-colors">Safety</a>
-            <a href="#" className="hover:text-brand-500 transition-colors">Support</a>
+            <Link to="/privacy" className="hover:text-brand-500 transition-colors">Privacy</Link>
+            <Link to="/terms" className="hover:text-brand-500 transition-colors">Terms</Link>
+            <Link to="/safety" className="hover:text-brand-500 transition-colors">Safety</Link>
+            <Link to="/support" className="hover:text-brand-500 transition-colors">Support</Link>
           </div>
           <p className="text-brand-800/20 text-xs font-medium max-w-sm sm:max-w-xl px-6">
             © 2026 PawVeda Intelligence. Built for the modern Indian pet parent — with love, the PawVeda founders.

@@ -5,7 +5,40 @@ type Block =
   | { type: 'p'; content: string }
   | { type: 'ul' | 'ol'; content: string[] };
 
+const toSlug = (text: string) => {
+  return text
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+};
+
 const renderInline = (text: string) => {
+  const linkPattern = /\[([^\]]+)\]\(([^)]+)\)/g;
+  const parts: React.ReactNode[] = [];
+  let lastIndex = 0;
+  let match: RegExpExecArray | null;
+
+  while ((match = linkPattern.exec(text)) !== null) {
+    const [full, label, href] = match;
+    const index = match.index || 0;
+    if (index > lastIndex) {
+      parts.push(text.slice(lastIndex, index));
+    }
+    parts.push(
+      <a key={`${href}-${index}`} className="content-link" href={href}>
+        {label}
+      </a>
+    );
+    lastIndex = index + full.length;
+  }
+
+  if (parts.length) {
+    if (lastIndex < text.length) {
+      parts.push(text.slice(lastIndex));
+    }
+    return parts;
+  }
+
   if (/^\/[^\s]+$/.test(text)) {
     return (
       <a className="content-link" href={text}>
@@ -88,8 +121,8 @@ const MarkdownRenderer: React.FC<{ content: string }> = ({ content }) => {
     <div className="content-body">
       {blocks.map((block, index) => {
         if (block.type === 'h1') return <h1 key={index}>{block.content}</h1>;
-        if (block.type === 'h2') return <h2 key={index}>{block.content}</h2>;
-        if (block.type === 'h3') return <h3 key={index}>{block.content}</h3>;
+        if (block.type === 'h2') return <h2 key={index} id={toSlug(block.content)}>{block.content}</h2>;
+        if (block.type === 'h3') return <h3 key={index} id={toSlug(block.content)}>{block.content}</h3>;
         if (block.type === 'p') return <p key={index}>{renderInline(block.content)}</p>;
         if (block.type === 'ul') {
           return (
