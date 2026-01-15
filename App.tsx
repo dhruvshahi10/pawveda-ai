@@ -8,6 +8,12 @@ import OrgOnboarding from './components/OrgOnboarding';
 import Dashboard from './components/Dashboard';
 import PillarPage from './components/PillarPage';
 import BlogPage from './components/BlogPage';
+import BlogIndex from './components/BlogIndex';
+import GuidesIndex from './components/GuidesIndex';
+import PrivacyPage from './components/PrivacyPage';
+import TermsPage from './components/TermsPage';
+import SafetyPage from './components/SafetyPage';
+import SupportPage from './components/SupportPage';
 import { clearAuthSession, coerceRole, getAuthSession, getDefaultUserState, getPostAuthPath, hydrateUserState, persistUserState, resolveRole, setAuthSession } from './lib/auth';
 import { apiClient } from './services/apiClient';
 import { PetData, UserState } from './types';
@@ -152,6 +158,10 @@ const AppRoutes: React.FC<{
   };
 
   useEffect(() => {
+    window.scrollTo({ top: 0, left: 0, behavior: 'instant' as ScrollBehavior });
+  }, [location.pathname, location.search]);
+
+  useEffect(() => {
     if (!bootstrapping) return;
     let active = true;
     const refreshSession = async () => {
@@ -225,7 +235,14 @@ const AppRoutes: React.FC<{
   return (
     <Routes>
       <Route path="/guides/:pillar" element={<PillarPage />} />
+      <Route path="/guides" element={<GuidesIndex />} />
       <Route path="/blog/:petType/:slug" element={<BlogPage />} />
+      <Route path="/blog/:petType" element={<BlogIndex />} />
+      <Route path="/blog" element={<BlogIndex />} />
+      <Route path="/privacy" element={<PrivacyPage />} />
+      <Route path="/terms" element={<TermsPage />} />
+      <Route path="/safety" element={<SafetyPage />} />
+      <Route path="/support" element={<SupportPage />} />
       <Route
         path="/"
         element={user.isLoggedIn ? <Navigate to={getPostAuthPath(user)} replace /> : <LandingPage onStart={handleStart} />}

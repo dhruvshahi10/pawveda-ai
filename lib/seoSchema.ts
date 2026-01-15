@@ -42,7 +42,7 @@ export const buildFaqSchema = (items: FaqItem[]): JsonLdValue => ({
 export type BlogPostingInput = {
   headline: string;
   description?: string;
-  datePublished: string;
+  datePublished?: string;
   dateModified?: string;
   url?: string;
   image?: string;
@@ -56,11 +56,14 @@ export const buildBlogPostingSchema = (input: BlogPostingInput): JsonLdValue => 
     '@context': 'https://schema.org',
     '@type': 'BlogPosting',
     headline: input.headline,
-    datePublished: input.datePublished,
     description: input.description,
     url: input.url,
     image: input.image
   };
+
+  if (input.datePublished) {
+    schema.datePublished = input.datePublished;
+  }
 
   if (input.dateModified) {
     schema.dateModified = input.dateModified;

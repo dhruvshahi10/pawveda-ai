@@ -40,15 +40,19 @@ export type SeoDefaults = {
   defaultImage?: string;
 };
 
-// TODO: Populate from /docs/seo templates.
+const SITE_URL = import.meta.env.VITE_SITE_URL || '';
+const DEFAULT_OG_IMAGE = import.meta.env.VITE_DEFAULT_OG_IMAGE || '';
+
+// Defaults can be overridden via VITE_SITE_URL / VITE_DEFAULT_OG_IMAGE.
 export const SEO_DEFAULTS: SeoDefaults = {
-  siteName: '',
-  siteUrl: '',
-  defaultTitle: '',
-  defaultDescription: '',
+  siteName: 'PawVeda',
+  siteUrl: SITE_URL,
+  defaultTitle: 'PawVeda | Pet care intelligence for Indian pet parents',
+  defaultDescription:
+    'Guides and daily care insights tailored to Indian breeds, climates, and households. PawVeda brings structured pet care intelligence to your routine.',
   defaultOgType: 'website',
   defaultTwitterCard: 'summary_large_image',
-  defaultImage: ''
+  defaultImage: DEFAULT_OG_IMAGE
 };
 
 const coalesce = (...values: Array<string | undefined>) => values.find(Boolean);
@@ -82,3 +86,5 @@ export const resolveSeoMeta = (input: SeoMetaInput = {}): ResolvedSeoMeta => {
     twitter
   };
 };
+
+export const getSiteUrl = () => SEO_DEFAULTS.siteUrl || '';
