@@ -1,5 +1,5 @@
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { apiClient } from '../services/apiClient';
 import { coerceRole, setAuthSession } from '../lib/auth';
 
@@ -23,15 +23,36 @@ const Auth: React.FC<Props> = ({ onComplete, onBack, initialMode = 'signup', onM
   const [fullName, setFullName] = useState('');
   const [phoneNumber, setPhoneNumber] = useState('');
   const [error, setError] = useState('');
+  const [toast, setToast] = useState<{ message: string; tone: 'error' | 'success' } | null>(null);
+  const toastTimeout = useRef<number | null>(null);
 
   useEffect(() => {
     setError('');
     setSentReset(false);
+    setToast(null);
   }, [mode]);
 
   useEffect(() => {
     setMode(prev => (prev !== initialMode ? initialMode : prev));
   }, [initialMode]);
+
+  useEffect(() => {
+    return () => {
+      if (toastTimeout.current) {
+        window.clearTimeout(toastTimeout.current);
+      }
+    };
+  }, []);
+
+  const showToast = (message: string, tone: 'error' | 'success' = 'error') => {
+    setToast({ message, tone });
+    if (toastTimeout.current) {
+      window.clearTimeout(toastTimeout.current);
+    }
+    toastTimeout.current = window.setTimeout(() => {
+      setToast(null);
+    }, 3500);
+  };
 
   const resetForm = () => {
     setEmail('');
@@ -56,6 +77,7 @@ const Auth: React.FC<Props> = ({ onComplete, onBack, initialMode = 'signup', onM
       setTimeout(() => {
         setLoading(false);
         setSentReset(true);
+        showToast('Reset link sent. Check your email.', 'success');
       }, 800);
       return;
     }
@@ -63,12 +85,16 @@ const Auth: React.FC<Props> = ({ onComplete, onBack, initialMode = 'signup', onM
     const trimmedEmail = email.trim().toLowerCase();
     if (!trimmedEmail || !password) {
       setLoading(false);
-      setError('Email and password are required.');
+      const message = 'Email and password are required.';
+      setError(message);
+      showToast(message, 'error');
       return;
     }
     if (mode === 'signup' && !fullName.trim()) {
       setLoading(false);
-      setError('Full name is required.');
+      const message = 'Full name is required.';
+      setError(message);
+      showToast(message, 'error');
       return;
     }
 
@@ -97,11 +123,13 @@ const Auth: React.FC<Props> = ({ onComplete, onBack, initialMode = 'signup', onM
       }
 
       const resolvedRole = coerceRole(data?.user?.role) ?? role;
+      showToast(mode === 'signup' ? 'Account created. Welcome!' : 'Login successful.', 'success');
       onComplete(resolvedRole);
       resetForm();
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Authentication failed.';
       setError(message);
+      showToast(message, 'error');
     } finally {
       setLoading(false);
     }
@@ -109,6 +137,19 @@ const Auth: React.FC<Props> = ({ onComplete, onBack, initialMode = 'signup', onM
 
   return (
     <div className="min-h-screen bg-brand-50 flex flex-col p-6 items-center justify-center">
+      {toast && (
+        <div
+          role="status"
+          aria-live="polite"
+          className={`fixed top-6 left-1/2 z-50 w-[calc(100%-3rem)] max-w-md -translate-x-1/2 rounded-2xl px-5 py-4 text-sm font-semibold shadow-2xl border backdrop-blur-xl bg-white/70 animate-in slide-in-from-top-2 duration-300 md:left-auto md:right-6 md:translate-x-0 md:max-w-sm ${
+            toast.tone === 'success'
+              ? 'text-emerald-900 border-emerald-200 shadow-emerald-200/40'
+              : 'text-red-900 border-red-200 shadow-red-200/40'
+          }`}
+        >
+          {toast.message}
+        </div>
+      )}
       <button onClick={onBack} className="absolute top-8 left-8 text-brand-900 font-bold flex items-center gap-2 group">
         <span className="group-hover:-translate-x-1 transition-transform">←</span> Back
       </button>
