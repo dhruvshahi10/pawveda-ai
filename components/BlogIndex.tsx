@@ -14,6 +14,29 @@ const BlogIndex: React.FC = () => {
   const siteUrl = getSiteUrl();
   const canonical = siteUrl ? `${siteUrl}/blog${petType ? `/${petType}` : ''}` : undefined;
 
+  const GEEKY_CARDS = [
+    {
+      title: 'Daily Exercise Range',
+      summary: 'Dogs typically need 30 minutes to 2 hours of exercise per day, depending on age, breed, and health.',
+      source: 'https://www.preventivevet.com/dogs/how-much-exercise-dogs-need'
+    },
+    {
+      title: 'Vaccination Guidance',
+      summary: 'WSAVA outlines core vs non-core vaccines so parents can follow an evidence-based schedule.',
+      source: 'https://wsava.org/global-guidelines/vaccination-guidelines/'
+    },
+    {
+      title: 'Nutrition Standards',
+      summary: 'WSAVA nutrition guidelines stress diet history and body condition tracking for better outcomes.',
+      source: 'https://wsava.org/global-guidelines/global-nutrition-guidelines/'
+    },
+    {
+      title: 'Heat Safety Signals',
+      summary: 'Know signs of overheating (panting, drooling, rapid heart rate) and adjust walks accordingly.',
+      source: 'https://www.aspca.org/pet-care/general-pet-care/hot-weather-safety-tips'
+    }
+  ];
+
   return (
     <PublicShell
       title="PawVeda Blog"
@@ -78,6 +101,32 @@ const BlogIndex: React.FC = () => {
             {type}
           </Link>
         ))}
+      </div>
+
+      <div className="bg-white/90 border border-brand-50 rounded-[2.5rem] p-8 shadow-sm space-y-6">
+        <div className="flex items-center justify-between">
+          <div>
+            <p className="text-[10px] font-black uppercase tracking-[0.4em] text-brand-500">Feeling Geeky?</p>
+            <h3 className="text-2xl font-display font-black text-brand-900">Expert sources behind the guidance</h3>
+          </div>
+          <span className="text-[10px] font-black uppercase tracking-widest text-brand-300">Tap to read</span>
+        </div>
+        <div className="grid gap-4 md:grid-cols-2">
+          {GEEKY_CARDS.map(card => (
+            <a
+              key={card.source}
+              href={card.source}
+              target="_blank"
+              rel="noreferrer"
+              className="block bg-brand-50/70 border border-brand-100 rounded-[2rem] p-6 hover:border-brand-300 hover:shadow-lg transition-all"
+            >
+              <p className="text-[10px] font-black uppercase tracking-[0.35em] text-brand-400">Source Flashcard</p>
+              <h4 className="text-lg font-display font-black text-brand-900 mt-3">{card.title}</h4>
+              <p className="text-xs text-brand-800/60 mt-2">{card.summary}</p>
+              <span className="inline-flex mt-4 text-[10px] font-black uppercase tracking-[0.35em] text-brand-500">Open Source →</span>
+            </a>
+          ))}
+        </div>
       </div>
 
       {featured && (

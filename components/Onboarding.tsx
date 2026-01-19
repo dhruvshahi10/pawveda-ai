@@ -1,5 +1,5 @@
 
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { getAuthSession } from '../lib/auth';
 import { apiClient } from '../services/apiClient';
 import { PetData } from '../types';
@@ -79,6 +79,10 @@ const Onboarding: React.FC<Props> = ({ onComplete }) => {
   const [step, setStep] = useState(0);
   const [citySearch, setCitySearch] = useState('');
   const [isCityLoading, setIsCityLoading] = useState(false);
+  const [saveState, setSaveState] = useState<'idle' | 'saving' | 'error' | 'success'>('idle');
+  const [saveError, setSaveError] = useState('');
+  const [toast, setToast] = useState<{ message: string; tone: 'error' | 'success' } | null>(null);
+  const toastTimeout = useRef<number | null>(null);
   const [formData, setFormData] = useState<PetData>({
     name: '',
     breed: 'Indie / Pariah',
@@ -132,13 +136,34 @@ const Onboarding: React.FC<Props> = ({ onComplete }) => {
   }, [citySearch]);
 
   useEffect(() => {
-    if (step === steps.length - 1) {
+    if (step === steps.length - 1 && saveState === 'idle') {
       const timer = setTimeout(() => handleSubmit(), 3500);
       return () => clearTimeout(timer);
     }
-  }, [step]);
+  }, [step, saveState]);
+
+  useEffect(() => {
+    return () => {
+      if (toastTimeout.current) {
+        window.clearTimeout(toastTimeout.current);
+      }
+    };
+  }, []);
+
+  const showToast = (message: string, tone: 'error' | 'success' = 'error') => {
+    setToast({ message, tone });
+    if (toastTimeout.current) {
+      window.clearTimeout(toastTimeout.current);
+    }
+    toastTimeout.current = window.setTimeout(() => {
+      setToast(null);
+    }, 3500);
+  };
 
   const handleSubmit = async () => {
+    if (saveState === 'saving' || saveState === 'success') {
+      return;
+    }
     const session = getAuthSession();
     if (!session?.accessToken) {
       onComplete(formData);
@@ -146,6 +171,8 @@ const Onboarding: React.FC<Props> = ({ onComplete }) => {
     }
 
     try {
+      setSaveState('saving');
+      setSaveError('');
       await apiClient.post(
         '/api/pets',
         {
@@ -174,10 +201,14 @@ const Onboarding: React.FC<Props> = ({ onComplete }) => {
         },
         { auth: true }
       );
-    } catch (err) {
-      console.error('Failed to save pet profile', err);
-    } finally {
+      setSaveState('success');
+      showToast('Pet profile saved.', 'success');
       onComplete(formData);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Failed to save pet profile.';
+      setSaveState('error');
+      setSaveError(message);
+      showToast(message, 'error');
     }
   };
 
@@ -185,6 +216,19 @@ const Onboarding: React.FC<Props> = ({ onComplete }) => {
 
   return (
     <div className="min-h-screen bg-[#FAF8F6] flex items-center justify-center p-4 md:p-10">
+      {toast && (
+        <div
+          role="status"
+          aria-live="polite"
+          className={`fixed top-6 left-1/2 z-50 w-[calc(100%-3rem)] max-w-md -translate-x-1/2 rounded-2xl px-5 py-4 text-sm font-semibold shadow-2xl border backdrop-blur-xl bg-white/70 animate-in slide-in-from-top-2 duration-300 md:left-auto md:right-6 md:translate-x-0 md:max-w-sm ${
+            toast.tone === 'success'
+              ? 'text-emerald-900 border-emerald-200 shadow-emerald-200/40'
+              : 'text-red-900 border-red-200 shadow-red-200/40'
+          }`}
+        >
+          {toast.message}
+        </div>
+      )}
       <div className="w-full max-w-6xl bg-white rounded-[3rem] md:rounded-[4rem] shadow-[0_40px_100px_-20px_rgba(82,49,23,0.15)] overflow-hidden flex flex-col md:flex-row relative">
         
         {/* Progress Bar */}
@@ -636,6 +680,17 @@ const Onboarding: React.FC<Props> = ({ onComplete }) => {
                   <p className="text-brand-800/40 font-bold uppercase text-[10px] tracking-widest animate-pulse delay-150">Optimizing Spice Auditor Matrix</p>
                 </div>
               </div>
+              {saveState === 'error' && (
+                <div className="space-y-4">
+                  <p className="text-sm text-red-500 font-bold">{saveError || 'We could not save your profile.'}</p>
+                  <button
+                    onClick={handleSubmit}
+                    className="w-full bg-brand-900 text-white py-4 rounded-[2rem] font-black text-sm uppercase tracking-widest"
+                  >
+                    Retry Save
+                  </button>
+                </div>
+              )}
             </div>
           )}
 

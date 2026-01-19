@@ -38,40 +38,49 @@ const CITY_EVENTS: Record<string, PetEvent[]> = {
   ]
 };
 
-const BREED_CHECKLIST: Record<string, ChecklistSection[]> = {
-  "indie": [
-    {
-      id: "breed-care",
-      title: "Breed-Specific Care",
-      items: [
-        { id: "indie-coat", label: "Brush coat 2x this week" },
-        { id: "indie-paws", label: "Check paws after walks" },
-        { id: "indie-training", label: "5-minute focus drill" }
-      ]
-    }
-  ],
-  "golden retriever": [
-    {
-      id: "breed-care",
-      title: "Breed-Specific Care",
-      items: [
-        { id: "golden-coat", label: "De-shed coat 2x this week" },
-        { id: "golden-joints", label: "Low-impact joint exercise" },
-        { id: "golden-ears", label: "Dry ears after bath" }
-      ]
-    }
-  ]
-};
+const buildChecklist = (petData: PetData): ChecklistSection[] => {
+  const activityTarget = petData.activityBaseline || (
+    petData.activityLevel === 'High'
+      ? '60-90 min/day'
+      : petData.activityLevel === 'Low'
+      ? '20-30 min/day'
+      : '30-60 min/day'
+  );
+  const mealLabel = petData.dietType === 'Home Cooked'
+    ? 'Balanced meal with protein + veg (no onion/garlic)'
+    : 'Measure kibble per weight goal';
+  const enrichmentLabel = petData.parkAccess === 'No'
+    ? 'Add 10-min indoor enrichment'
+    : 'Schedule one outdoor sniff walk';
+  const pawLabel = petData.walkSurface === 'Asphalt'
+    ? 'Check paws after hot pavement'
+    : 'Quick paw + coat check';
+  const vetLabel = petData.vetAccess === 'None'
+    ? 'Book a baseline vet visit'
+    : 'Confirm next vet check date';
 
-const NUTRITION_CHECKLIST: ChecklistSection = {
-  id: "nutrition",
-  title: "Nutrition & Hydration",
-  items: [
-    { id: "water-refresh", label: "Fresh water twice daily" },
-    { id: "protein-check", label: "Protein in every meal" },
-    { id: "no-onion", label: "Avoid onion/garlic/xylitol" },
-    { id: "portion", label: "Portion measured per weight" }
-  ]
+  return [
+    {
+      id: 'daily-protocol',
+      title: 'Daily Care Protocol',
+      items: [
+        { id: 'hydrate', label: 'Fresh water refreshed twice' },
+        { id: 'meals', label: mealLabel },
+        { id: 'activity', label: `Activity target: ${activityTarget}` },
+        { id: 'enrichment', label: enrichmentLabel }
+      ]
+    },
+    {
+      id: 'safety-health',
+      title: 'Safety & Health',
+      items: [
+        { id: 'paws', label: pawLabel },
+        { id: 'coat', label: 'Brush coat or wipe down after walks' },
+        { id: 'ticks', label: 'Quick tick check (ears, paws, neck)' },
+        { id: 'vet', label: vetLabel }
+      ]
+    }
+  ];
 };
 
 const hashString = (value: string) => {
@@ -96,21 +105,7 @@ export const getMicroTips = (petData: PetData): MicroTip[] => {
 };
 
 export const getChecklist = (petData: PetData): ChecklistSection[] => {
-  const breedKey = (petData.breed || "").toLowerCase();
-  const breedSection =
-    BREED_CHECKLIST[breedKey] ||
-    [
-      {
-        id: "breed-care",
-        title: "Breed-Specific Care",
-        items: [
-          { id: "breed-activity", label: "15-minute enrichment drill" },
-          { id: "breed-coat", label: "Check coat and skin health" },
-          { id: "breed-paws", label: "Inspect paws and nails" }
-        ]
-      }
-    ];
-  return [...breedSection, NUTRITION_CHECKLIST];
+  return buildChecklist(petData);
 };
 
 export const fetchPetEvents = async (city: string): Promise<PetEvent[]> => {
