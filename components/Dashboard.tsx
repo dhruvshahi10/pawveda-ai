@@ -1,6 +1,8 @@
 
 import React, { useState, useRef, useEffect, useMemo } from 'react';
-import { ActivityLog, ChecklistHistoryPoint, ChecklistSection, DailyBrief, MicroTip, NearbyService, NutriLensResult, PetData, PetEvent, Reminder, SafetyRadar, UserCredits, UserState } from '../types';
+import { Link } from 'react-router-dom';
+import { ResponsiveContainer, LineChart, Line, XAxis, YAxis, Tooltip, BarChart, Bar, PieChart, Pie, Cell } from 'recharts';
+import { ActivityLog, ActivityLogRecord, CareRequestRecord, ChecklistHistoryPoint, ChecklistItem, ChecklistSection, DailyBrief, DashboardSummary, MicroTip, NearbyService, NutriLensResult, PetData, PetEvent, PetUpdateRecord, Reminder, SafetyRadar, UserCredits, UserState } from '../types';
 import { 
   analyzeNutriLens, 
   suggestActivity, 
@@ -8,7 +10,11 @@ import {
   generatePlayPlan
 } from '../services/geminiService';
 import { fetchDailyBrief, fetchNearbyServices, fetchPetEvents, fetchSafetyRadar, getChecklist, getMicroTips, seedChecklistHistory } from '../services/feedService';
+import { apiClient } from '../services/apiClient';
+import { createActivityLog, createCareRequest, createDietLog, createMedicalEvent, createParentFeedback, createPetUpdate, createSymptomLog, fetchActivityLogs, fetchCareRequests, fetchDashboardSummary, fetchPetUpdates } from '../services/dashboardService';
 import Adoption from './Adoption';
+import { getAuthSession, setAuthSession } from '../lib/auth';
+import { getAllBlogs } from '../lib/content';
 
 interface Props {
   user: UserState;
@@ -37,6 +43,159 @@ const TRAINING_TECHNIQUES = [
   { title: "Targeting (Touch)", desc: "Hold your hand out; click/treat the moment their nose touches your palm. Use this to move them without pulling." }
 ];
 
+const GEEKY_CARDS = [
+  {
+    title: 'Daily Exercise Range',
+    summary: 'Dogs typically need 30 minutes to 2 hours of exercise per day, depending on age, breed, and health.',
+    source: 'https://www.preventivevet.com/dogs/how-much-exercise-dogs-need'
+  },
+  {
+    title: 'Vaccination Guidance',
+    summary: 'WSAVA outlines core vs non-core vaccines so parents can follow an evidence-based schedule.',
+    source: 'https://wsava.org/global-guidelines/vaccination-guidelines/'
+  },
+  {
+    title: 'Nutrition Standards',
+    summary: 'WSAVA nutrition guidelines stress diet history and body condition tracking for better outcomes.',
+    source: 'https://wsava.org/global-guidelines/global-nutrition-guidelines/'
+  },
+  {
+    title: 'Heat Safety Signals',
+    summary: 'Know signs of overheating (panting, drooling, rapid heart rate) and adjust walks accordingly.',
+    source: 'https://www.aspca.org/pet-care/general-pet-care/hot-weather-safety-tips'
+  }
+];
+
+const BREED_OPTIONS = ['Indie / Pariah', 'Golden Retriever', 'Labrador', 'German Shepherd', 'Beagle', 'Shih Tzu', 'Persian Cat', 'Indie Cat'];
+const DIET_TYPES = ['Home Cooked', 'Kibble', 'Mixed'] as const;
+const GENDER_OPTIONS = ['Male', 'Female'] as const;
+const ACTIVITY_LEVELS = ['Low', 'Moderate', 'High'] as const;
+const SPAY_STATUSES = ['Yes', 'No', 'Unknown'] as const;
+const VACCINATION_STATUSES = ['Up to date', 'Partial', 'Not sure'] as const;
+const ACTIVITY_BASELINES = ['15-30 min', '30-60 min', '60+ min'] as const;
+const HOUSING_TYPES = ['Apartment', 'Independent House', 'Farm / Villa'] as const;
+const WALK_SURFACES = ['Asphalt', 'Grass', 'Mixed'] as const;
+const PARK_ACCESS = ['Yes', 'No'] as const;
+const FEEDING_SCHEDULES = ['Once', 'Twice', 'Thrice'] as const;
+const VET_ACCESS = ['Regular Vet', 'Occasional', 'None'] as const;
+type QuickUpdateMode = 'weekly' | 'diet' | 'medical' | 'symptom';
+
+type CustomChecklistItem = {
+  id: string;
+  label: string;
+  frequency: 'daily' | 'weekly';
+  remindTime?: string;
+  notifyEnabled?: boolean;
+};
+type ChecklistOverride = {
+  label?: string;
+  remindTime?: string;
+  notifyEnabled?: boolean;
+  hidden?: boolean;
+};
+type SymptomLogEntry = {
+  id: string;
+  symptomType: string;
+  severity: number;
+  occurredAt: string;
+  notes?: string | null;
+};
+type MedicalEventEntry = {
+  id: string;
+  eventType: string;
+  dateAdministered?: string | null;
+  nextDue?: string | null;
+  verifiedBy?: string | null;
+  notes?: string | null;
+};
+const QUICK_UPDATE_MODES: { value: QuickUpdateMode; label: string; helper: string }[] = [
+  { value: 'weekly', label: 'Weekly check-in', helper: 'Weight, activity, diet summary.' },
+  { value: 'diet', label: 'Diet log', helper: 'Diet type + food served.' },
+  { value: 'medical', label: 'Medical event', helper: 'Vaccines, deworming, vet visits.' },
+  { value: 'symptom', label: 'Symptom signal', helper: 'Track anything unusual.' }
+];
+
+const listToCsv = (list?: string[]) => (list && list.length ? list.join(', ') : '');
+const csvToList = (value: string) =>
+  value
+    .split(',')
+    .map(item => item.trim())
+    .filter(Boolean);
+
+const getChecklistOverrideKey = (pet?: PetData) =>
+  `pawveda_checklist_overrides_${pet?.id || pet?.name || 'guest'}_${pet?.city || 'city'}`;
+const getSymptomLogStorageKey = (pet?: PetData) =>
+  `pawveda_symptoms_${pet?.id || pet?.name || 'guest'}_${pet?.city || 'city'}`;
+const getLegacySymptomLogStorageKey = (pet?: PetData) =>
+  `pawveda_symptoms_${pet?.name || 'guest'}_${pet?.city || 'city'}`;
+const getMedicalEventStorageKey = (pet?: PetData) =>
+  `pawveda_medical_events_${pet?.id || pet?.name || 'guest'}_${pet?.city || 'city'}`;
+const getLegacyMedicalEventStorageKey = (pet?: PetData) =>
+  `pawveda_medical_events_${pet?.name || 'guest'}_${pet?.city || 'city'}`;
+
+const buildPetDraft = (pet?: PetData) => ({
+  name: pet?.name ?? '',
+  breed: pet?.breed ?? 'Indie / Pariah',
+  age: pet?.age ?? 'Adult',
+  ageMonths: pet?.ageMonths ?? '',
+  weight: pet?.weight ?? '15',
+  dietType: pet?.dietType ?? 'Home Cooked',
+  gender: pet?.gender ?? 'Male',
+  activityLevel: pet?.activityLevel ?? 'Moderate',
+  city: pet?.city ?? '',
+  spayNeuterStatus: pet?.spayNeuterStatus ?? 'Unknown',
+  vaccinationStatus: pet?.vaccinationStatus ?? 'Not sure',
+  lastVaccineDate: pet?.lastVaccineDate ?? '',
+  activityBaseline: pet?.activityBaseline ?? '30-60 min',
+  housingType: pet?.housingType ?? 'Apartment',
+  walkSurface: pet?.walkSurface ?? 'Mixed',
+  parkAccess: pet?.parkAccess ?? 'Yes',
+  feedingSchedule: pet?.feedingSchedule ?? 'Twice',
+  foodBrand: pet?.foodBrand ?? '',
+  vetAccess: pet?.vetAccess ?? 'Regular Vet',
+  allergies: listToCsv(pet?.allergies),
+  interests: listToCsv(pet?.interests),
+  goals: listToCsv(pet?.goals)
+});
+
+const buildQuickUpdateDraft = (pet?: PetData, date?: string) => ({
+  date: date || new Date().toISOString().slice(0, 10),
+  weight: pet?.weight ?? '15',
+  dietType: pet?.dietType ?? 'Home Cooked',
+  activityLevel: pet?.activityLevel ?? 'Moderate',
+  notes: ''
+});
+
+type PetUpdateEntry = {
+  id?: string;
+  date: string;
+  weight?: string;
+  dietType?: string;
+  activityLevel?: string;
+  notes?: string;
+};
+
+const mapPetUpdateRecord = (record: PetUpdateRecord): PetUpdateEntry => ({
+  id: record.id,
+  date: record.updateDate,
+  weight: record.weightValue !== null && record.weightValue !== undefined ? String(record.weightValue) : undefined,
+  dietType: record.dietType ?? undefined,
+  activityLevel: record.activityLevel ?? undefined,
+  notes: record.notes ?? undefined
+});
+
+const mapActivityLogRecord = (record: ActivityLogRecord, advice?: string): ActivityLog => {
+  const type = ['Walk', 'Play', 'Training'].includes(record.activityType) ? record.activityType as ActivityLog['type'] : 'Walk';
+  return {
+    id: record.id,
+    type,
+    duration: record.durationMinutes,
+    timestamp: new Date(record.occurredAt),
+    advice: advice || (record.intensity ? `Intensity: ${record.intensity}` : 'Logged activity.'),
+    notes: record.notes ?? undefined
+  };
+};
+
 const Dashboard: React.FC<Props> = ({ user, setUser, onUpgrade, onLogout }) => {
   const [activeTab, setActiveTab] = useState<'home' | 'nutri' | 'play' | 'studio' | 'parent' | 'adoption'>('home');
   const [isProcessing, setIsProcessing] = useState(false);
@@ -52,14 +211,90 @@ const Dashboard: React.FC<Props> = ({ user, setUser, onUpgrade, onLogout }) => {
   const [checklistStreak, setChecklistStreak] = useState(0);
   const [lastChecklistDate, setLastChecklistDate] = useState('');
   const [checklistHistory, setChecklistHistory] = useState<ChecklistHistoryPoint[]>([]);
+  const [customChecklist, setCustomChecklist] = useState<CustomChecklistItem[]>([]);
+  const [customChecklistDraft, setCustomChecklistDraft] = useState({
+    label: '',
+    frequency: 'daily' as CustomChecklistItem['frequency'],
+    remindTime: '',
+    notifyEnabled: false
+  });
+  const [checklistOverrides, setChecklistOverrides] = useState<Record<string, ChecklistOverride>>({});
+  const [checklistEditor, setChecklistEditor] = useState<{
+    id: string;
+    label: string;
+    frequency: 'daily' | 'weekly';
+    remindTime: string;
+    notifyEnabled: boolean;
+  } | null>(null);
   const [expandedServiceId, setExpandedServiceId] = useState<string | null>(null);
   const [showServices, setShowServices] = useState(true);
-  const [activeParentAction, setActiveParentAction] = useState<string | null>(null);
   const [showNotifications, setShowNotifications] = useState(false);
   const [showPayment, setShowPayment] = useState(false);
   const [showReminders, setShowReminders] = useState(false);
   const [showHelpCenter, setShowHelpCenter] = useState(false);
+  const [showPetProfileEditor, setShowPetProfileEditor] = useState(false);
+  const [showPetQuickUpdate, setShowPetQuickUpdate] = useState(false);
+  const [showTreats, setShowTreats] = useState(false);
+  const [quickUpdateMode, setQuickUpdateMode] = useState<QuickUpdateMode>('weekly');
+  const [showProfileMenu, setShowProfileMenu] = useState(false);
+  const [profileView, setProfileView] = useState<'pet' | 'parent'>('pet');
+  const [trendRange, setTrendRange] = useState<'daily' | 'weekly' | 'monthly'>('weekly');
+  const [selectedCheckinId, setSelectedCheckinId] = useState<string>('latest');
+  const [petDraft, setPetDraft] = useState(() => buildPetDraft(user.pet));
+  const [quickUpdateDraft, setQuickUpdateDraft] = useState(() => buildQuickUpdateDraft(user.pet));
+  const [petSaveState, setPetSaveState] = useState<'idle' | 'saving' | 'success' | 'error'>('idle');
+  const [petSaveError, setPetSaveError] = useState('');
+  const [parentDraft, setParentDraft] = useState({ email: '', fullName: '', phone: '' });
+  const [parentSaveState, setParentSaveState] = useState<'idle' | 'saving' | 'success' | 'error'>('idle');
+  const [parentSaveError, setParentSaveError] = useState('');
+  const [petUpdates, setPetUpdates] = useState<PetUpdateEntry[]>([]);
+  const [dashboardSummary, setDashboardSummary] = useState<DashboardSummary | null>(null);
+  const [dietLogDraft, setDietLogDraft] = useState({
+    logDate: new Date().toISOString().slice(0, 10),
+    mealType: 'Breakfast',
+    dietType: 'Home Cooked',
+    actualFood: ''
+  });
+  const [medicalEventDraft, setMedicalEventDraft] = useState({
+    eventType: 'Vaccine',
+    dateAdministered: new Date().toISOString().slice(0, 10),
+    nextDue: '',
+    verifiedBy: '',
+    notes: ''
+  });
+  const [symptomLogDraft, setSymptomLogDraft] = useState({
+    occurredAt: new Date().toISOString().slice(0, 16),
+    symptomType: '',
+    severity: 2,
+    notes: ''
+  });
+  const [feedbackDraft, setFeedbackDraft] = useState({
+    rating: 9,
+    category: 'Parent Dashboard',
+    sentiment: 'Positive',
+    message: '',
+    tags: 'trend,insights'
+  });
+  const [toast, setToast] = useState<{ message: string; tone: 'error' | 'success' } | null>(null);
+  const toastTimeout = useRef<number | null>(null);
   const [reminders, setReminders] = useState<Reminder[]>([]);
+  const [treatsLedger, setTreatsLedger] = useState({ activities: 0, updates: 0 });
+  const [showSymptomDetails, setShowSymptomDetails] = useState(false);
+  const [showCareRequest, setShowCareRequest] = useState(false);
+  const [careRequestDraft, setCareRequestDraft] = useState({
+    type: 'Vet consult',
+    concern: '',
+    notes: '',
+    preferredTime: '',
+    phone: '',
+    location: '',
+    urgency: 'High',
+    reportType: 'Lab report'
+  });
+  const [symptomLogs, setSymptomLogs] = useState<SymptomLogEntry[]>([]);
+  const [medicalEvents, setMedicalEvents] = useState<MedicalEventEntry[]>([]);
+  const [showMedicalSchedule, setShowMedicalSchedule] = useState(false);
+  const [careRequests, setCareRequests] = useState<CareRequestRecord[]>([]);
   const [reminderDraft, setReminderDraft] = useState<Reminder>({
     id: '',
     title: '',
@@ -70,6 +305,10 @@ const Dashboard: React.FC<Props> = ({ user, setUser, onUpgrade, onLogout }) => {
   const [expandedTraining, setExpandedTraining] = useState<number | null>(null);
   const [expandedChecklist, setExpandedChecklist] = useState<number | null>(null);
   const [dailyGame, setDailyGame] = useState<string>('');
+  const [showFeedback, setShowFeedback] = useState(false);
+  const [insightMetric, setInsightMetric] = useState<'weight' | 'activity' | 'diet'>('weight');
+  const [showChecklist, setShowChecklist] = useState(false);
+  const [claimedTreats, setClaimedTreats] = useState(0);
   
   // Nutri Lens State
   const [selectedImage, setSelectedImage] = useState<string | null>(null);
@@ -79,6 +318,7 @@ const Dashboard: React.FC<Props> = ({ user, setUser, onUpgrade, onLogout }) => {
   const [showLogForm, setShowLogForm] = useState(false);
   const [logType, setLogType] = useState<'Walk' | 'Play' | 'Training'>('Walk');
   const [logDuration, setLogDuration] = useState('20');
+  const [logDate, setLogDate] = useState(() => new Date().toISOString().slice(0, 10));
   const [logNotes, setLogNotes] = useState('');
   const [filterType, setFilterType] = useState<'All' | 'Walk' | 'Play' | 'Training'>('All');
   const [filterDate, setFilterDate] = useState<'All' | 'Today' | 'Week'>('All');
@@ -89,13 +329,49 @@ const Dashboard: React.FC<Props> = ({ user, setUser, onUpgrade, onLogout }) => {
 
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  useEffect(() => {
+    return () => {
+      if (toastTimeout.current) {
+        window.clearTimeout(toastTimeout.current);
+      }
+    };
+  }, []);
+
+  const showToast = (message: string, tone: 'error' | 'success' = 'error') => {
+    setToast({ message, tone });
+    if (toastTimeout.current) {
+      window.clearTimeout(toastTimeout.current);
+    }
+    toastTimeout.current = window.setTimeout(() => {
+      setToast(null);
+    }, 3500);
+  };
+
   const dateKey = (value: Date) => value.toISOString().slice(0, 10);
 
   const getChecklistStorageKey = (pet?: PetData) =>
     `pawveda_checklist_${pet?.name || 'guest'}_${pet?.city || 'city'}`;
 
+  const getCustomChecklistStorageKey = (pet?: PetData) =>
+    `pawveda_custom_checklist_${pet?.id || pet?.name || 'guest'}_${pet?.city || 'city'}`;
+
+  const persistChecklistOverrides = (pet: PetData | undefined, overrides: Record<string, ChecklistOverride>) => {
+    if (!pet) return;
+    try {
+      localStorage.setItem(getChecklistOverrideKey(pet), JSON.stringify(overrides));
+    } catch {
+      // ignore
+    }
+  };
+
   const getReminderStorageKey = (pet?: PetData) =>
     `pawveda_reminders_${pet?.name || 'guest'}_${pet?.city || 'city'}`;
+
+  const getPetUpdateStorageKey = (pet?: PetData) =>
+    `pawveda_pet_updates_${pet?.id || pet?.name || 'guest'}_${pet?.city || 'city'}`;
+
+  const getTreatsStorageKey = (pet?: PetData) =>
+    `pawveda_treats_claimed_${pet?.id || pet?.name || 'guest'}_${pet?.city || 'city'}`;
 
   const getChecklistIds = (sections: ChecklistSection[]) =>
     sections.flatMap(section => section.items.map(item => item.id));
@@ -122,6 +398,15 @@ const Dashboard: React.FC<Props> = ({ user, setUser, onUpgrade, onLogout }) => {
     }
   };
 
+  const persistCustomChecklist = (pet: PetData | undefined, items: CustomChecklistItem[]) => {
+    if (!pet) return;
+    try {
+      localStorage.setItem(getCustomChecklistStorageKey(pet), JSON.stringify(items));
+    } catch {
+      // ignore
+    }
+  };
+
   const mergeHistory = (
     existing: ChecklistHistoryPoint[],
     date: string,
@@ -143,6 +428,259 @@ const Dashboard: React.FC<Props> = ({ user, setUser, onUpgrade, onLogout }) => {
       localStorage.setItem(getReminderStorageKey(pet), JSON.stringify(items));
     } catch {
       // ignore
+    }
+  };
+
+  const persistPetUpdates = (pet: PetData | undefined, updates: PetUpdateEntry[]) => {
+    if (!pet) return;
+    try {
+      localStorage.setItem(getPetUpdateStorageKey(pet), JSON.stringify(updates));
+    } catch {
+      // ignore
+    }
+  };
+
+  const logPetUpdate = (pet: PetData | undefined, entry: PetUpdateEntry) => {
+    if (!pet) return;
+    const next = [...petUpdates];
+    const existingIndex = entry.id
+      ? next.findIndex(item => item.id === entry.id)
+      : -1;
+    if (existingIndex >= 0) {
+      next[existingIndex] = { ...next[existingIndex], ...entry };
+    } else {
+      next.unshift(entry);
+    }
+    const trimmed = next.slice(0, 12);
+    setPetUpdates(trimmed);
+    persistPetUpdates(pet, trimmed);
+  };
+
+  const openParentProfile = () => {
+    const sessionUser = (getAuthSession()?.user as { email?: string; fullName?: string; phoneE164?: string } | undefined) || {};
+    setParentDraft({
+      email: sessionUser.email || '',
+      fullName: sessionUser.fullName || '',
+      phone: sessionUser.phoneE164 || ''
+    });
+    setParentSaveState('idle');
+    setParentSaveError('');
+    setProfileView('parent');
+  };
+
+  useEffect(() => {
+    if (!parentDraft.email && user.isLoggedIn) {
+      const sessionUser = (getAuthSession()?.user as { email?: string; fullName?: string; phoneE164?: string } | undefined) || {};
+      if (sessionUser.email) {
+        setParentDraft({
+          email: sessionUser.email || '',
+          fullName: sessionUser.fullName || '',
+          phone: sessionUser.phoneE164 || ''
+        });
+      }
+    }
+  }, [parentDraft.email, user.isLoggedIn]);
+
+  const openPetProfileEditor = () => {
+    setPetDraft(buildPetDraft(user.pet));
+    setPetSaveState('idle');
+    setPetSaveError('');
+    setShowPetProfileEditor(true);
+  };
+
+  const openPetQuickUpdate = (date?: string, mode: QuickUpdateMode = 'weekly') => {
+    setQuickUpdateMode(mode);
+    setQuickUpdateDraft(buildQuickUpdateDraft(user.pet, date));
+    setPetSaveState('idle');
+    setPetSaveError('');
+    setShowPetQuickUpdate(true);
+  };
+
+  const ensurePetId = async () => {
+    if (user.pet?.id) {
+      return user.pet.id;
+    }
+    try {
+      const profiles = await apiClient.get<any[]>('/api/pets', { auth: true });
+      const profile = Array.isArray(profiles) && profiles.length ? profiles[0] : null;
+      if (profile?.id && user.pet) {
+        setUser({ ...user, pet: { ...user.pet, id: profile.id } });
+      }
+      return profile?.id ?? null;
+    } catch {
+      return null;
+    }
+  };
+
+  const handleSavePetProfile = async () => {
+    if (!user.pet) {
+      const message = 'Pet profile not found.';
+      setPetSaveState('error');
+      setPetSaveError(message);
+      showToast(message, 'error');
+      return;
+    }
+    setPetSaveState('saving');
+    setPetSaveError('');
+    try {
+      const petId = await ensurePetId();
+      if (!petId) {
+        throw new Error('Unable to locate pet profile.');
+      }
+      await apiClient.patch(
+        `/api/pets/${petId}`,
+        {
+          name: petDraft.name,
+          breed: petDraft.breed,
+          age: petDraft.age,
+          ageMonths: petDraft.ageMonths || null,
+          weight: petDraft.weight,
+          dietType: petDraft.dietType,
+          gender: petDraft.gender,
+          activityLevel: petDraft.activityLevel,
+          city: petDraft.city,
+          spayNeuterStatus: petDraft.spayNeuterStatus,
+          vaccinationStatus: petDraft.vaccinationStatus,
+          lastVaccineDate: petDraft.lastVaccineDate || null,
+          activityBaseline: petDraft.activityBaseline,
+          housingType: petDraft.housingType,
+          walkSurface: petDraft.walkSurface,
+          parkAccess: petDraft.parkAccess,
+          feedingSchedule: petDraft.feedingSchedule,
+          foodBrand: petDraft.foodBrand,
+          vetAccess: petDraft.vetAccess,
+          allergies: csvToList(petDraft.allergies),
+          interests: csvToList(petDraft.interests),
+          goals: csvToList(petDraft.goals)
+        },
+        { auth: true }
+      );
+      logPetUpdate(user.pet, {
+        date: dateKey(new Date()),
+        weight: petDraft.weight,
+        dietType: petDraft.dietType,
+        activityLevel: petDraft.activityLevel
+      });
+      const updatedPet: PetData = {
+        ...user.pet,
+        ...petDraft,
+        id: user.pet.id
+      };
+      updatedPet.allergies = csvToList(petDraft.allergies);
+      updatedPet.interests = csvToList(petDraft.interests);
+      updatedPet.goals = csvToList(petDraft.goals);
+      setUser({ ...user, pet: updatedPet });
+      setPetSaveState('success');
+      showToast('Pet profile updated.', 'success');
+      setShowPetProfileEditor(false);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Failed to update pet profile.';
+      setPetSaveState('error');
+      setPetSaveError(message);
+      showToast(message, 'error');
+    }
+  };
+
+  const handleSavePetQuickUpdate = async (): Promise<boolean> => {
+    if (!user.pet) {
+      const message = 'Pet profile not found.';
+      setPetSaveState('error');
+      setPetSaveError(message);
+      showToast(message, 'error');
+      return false;
+    }
+    const parsedWeight = Number(quickUpdateDraft.weight);
+    if (Number.isNaN(parsedWeight)) {
+      showToast('Enter a valid weight to save the weekly update.', 'error');
+      return false;
+    }
+    setPetSaveState('saving');
+    setPetSaveError('');
+    try {
+      const petId = await ensurePetId();
+      if (!petId) {
+        throw new Error('Unable to locate pet profile.');
+      }
+      await apiClient.patch(
+        `/api/pets/${petId}`,
+        {
+          weight: quickUpdateDraft.weight,
+          dietType: quickUpdateDraft.dietType,
+          activityLevel: quickUpdateDraft.activityLevel
+        },
+        { auth: true }
+      );
+      const createdUpdate = await createPetUpdate({
+        petId,
+        updateDate: quickUpdateDraft.date || dateKey(new Date()),
+        weightValue: Number.isNaN(parsedWeight) ? null : parsedWeight,
+        weightUnit: 'kg',
+        dietType: quickUpdateDraft.dietType,
+        activityLevel: quickUpdateDraft.activityLevel,
+        notes: quickUpdateDraft.notes
+      });
+      logPetUpdate(user.pet, {
+        id: createdUpdate.id,
+        date: quickUpdateDraft.date || dateKey(new Date()),
+        weight: quickUpdateDraft.weight,
+        dietType: quickUpdateDraft.dietType,
+        activityLevel: quickUpdateDraft.activityLevel,
+        notes: quickUpdateDraft.notes
+      });
+      setUser({
+        ...user,
+        pet: {
+          ...user.pet,
+          weight: quickUpdateDraft.weight,
+          dietType: quickUpdateDraft.dietType,
+          activityLevel: quickUpdateDraft.activityLevel
+        }
+      });
+      setPetSaveState('success');
+      showToast('Update logged.', 'success');
+      setTreatsLedger(prev => ({ ...prev, updates: prev.updates + 1 }));
+      return true;
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Failed to update pet.';
+      setPetSaveState('error');
+      setPetSaveError(message);
+      showToast(message, 'error');
+      return false;
+    }
+  };
+
+  const handleSaveParentProfile = async () => {
+    setParentSaveState('saving');
+    setParentSaveError('');
+    try {
+      const data = await apiClient.patch<{
+        id: string;
+        email: string;
+        fullName?: string | null;
+        role?: string | null;
+        tier?: string | null;
+      }>(
+        '/api/me',
+        {
+          fullName: parentDraft.fullName || null,
+          phoneE164: parentDraft.phone || null
+        },
+        { auth: true }
+      );
+      const session = getAuthSession();
+      if (session?.accessToken) {
+        setAuthSession({
+          ...session,
+          user: { ...(session.user as object), ...data }
+        });
+      }
+      setParentSaveState('success');
+      showToast('Parent profile updated.', 'success');
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Failed to update parent profile.';
+      setParentSaveState('error');
+      setParentSaveError(message);
+      showToast(message, 'error');
     }
   };
 
@@ -185,6 +723,42 @@ const Dashboard: React.FC<Props> = ({ user, setUser, onUpgrade, onLogout }) => {
         }
 
         try {
+          const customStored = localStorage.getItem(getCustomChecklistStorageKey(user.pet));
+          if (customStored) {
+            const parsed = JSON.parse(customStored);
+            setCustomChecklist(Array.isArray(parsed) ? parsed : []);
+          } else {
+            setCustomChecklist([]);
+          }
+        } catch {
+          setCustomChecklist([]);
+        }
+
+        try {
+          const overridesStored = localStorage.getItem(getChecklistOverrideKey(user.pet));
+          if (overridesStored) {
+            const parsed = JSON.parse(overridesStored);
+            setChecklistOverrides(parsed && typeof parsed === 'object' ? parsed : {});
+          } else {
+            setChecklistOverrides({});
+          }
+        } catch {
+          setChecklistOverrides({});
+        }
+
+        try {
+          const treatsStored = localStorage.getItem(getTreatsStorageKey(user.pet));
+          if (treatsStored) {
+            const parsed = JSON.parse(treatsStored);
+            setClaimedTreats(typeof parsed === 'number' ? parsed : 0);
+          } else {
+            setClaimedTreats(0);
+          }
+        } catch {
+          setClaimedTreats(0);
+        }
+
+        try {
           const reminderStored = localStorage.getItem(getReminderStorageKey(user.pet));
           if (reminderStored) {
             const parsed = JSON.parse(reminderStored);
@@ -194,6 +768,68 @@ const Dashboard: React.FC<Props> = ({ user, setUser, onUpgrade, onLogout }) => {
           }
         } catch {
           setReminders([]);
+        }
+
+        try {
+          const symptomStored = localStorage.getItem(getSymptomLogStorageKey(user.pet));
+          if (symptomStored) {
+            const parsed = JSON.parse(symptomStored);
+            setSymptomLogs(Array.isArray(parsed) ? parsed : []);
+          } else {
+            const legacyKey = getLegacySymptomLogStorageKey(user.pet);
+            const legacyStored = localStorage.getItem(legacyKey);
+            if (legacyStored) {
+              const parsed = JSON.parse(legacyStored);
+              setSymptomLogs(Array.isArray(parsed) ? parsed : []);
+            } else {
+              setSymptomLogs([]);
+            }
+          }
+        } catch {
+          setSymptomLogs([]);
+        }
+
+        try {
+          const medicalStored = localStorage.getItem(getMedicalEventStorageKey(user.pet));
+          if (medicalStored) {
+            const parsed = JSON.parse(medicalStored);
+            setMedicalEvents(Array.isArray(parsed) ? parsed : []);
+          } else {
+            const legacyKey = getLegacyMedicalEventStorageKey(user.pet);
+            const legacyStored = localStorage.getItem(legacyKey);
+            if (legacyStored) {
+              const parsed = JSON.parse(legacyStored);
+              setMedicalEvents(Array.isArray(parsed) ? parsed : []);
+            } else {
+              setMedicalEvents([]);
+            }
+          }
+        } catch {
+          setMedicalEvents([]);
+        }
+
+        try {
+          const updatesStored = localStorage.getItem(getPetUpdateStorageKey(user.pet));
+          if (updatesStored) {
+            const parsed = JSON.parse(updatesStored);
+            setPetUpdates(Array.isArray(parsed) ? parsed : []);
+          } else {
+            setPetUpdates([]);
+          }
+        } catch {
+          setPetUpdates([]);
+        }
+
+        try {
+          const careStored = localStorage.getItem('pawveda_care_requests');
+          if (careStored) {
+            const parsed = JSON.parse(careStored);
+            setCareRequests(Array.isArray(parsed) ? parsed : []);
+          } else {
+            setCareRequests([]);
+          }
+        } catch {
+          setCareRequests([]);
         }
 
         const results = await Promise.allSettled([
@@ -235,6 +871,58 @@ const Dashboard: React.FC<Props> = ({ user, setUser, onUpgrade, onLogout }) => {
     loadData();
   }, [user.pet]);
 
+  useEffect(() => {
+    const loadDashboardInsights = async () => {
+      if (!user.pet || !user.isLoggedIn) return;
+      const petId = user.pet.id || await ensurePetId();
+      if (!petId) return;
+      const rangeDays = trendRange === 'daily' ? 1 : trendRange === 'weekly' ? 7 : 30;
+      const results = await Promise.allSettled([
+        fetchDashboardSummary(petId, trendRange),
+        fetchPetUpdates(petId, rangeDays),
+        fetchActivityLogs(petId, rangeDays),
+        fetchCareRequests(petId)
+      ]);
+      const [summaryResult, updatesResult, activityResult, careResult] = results;
+      if (summaryResult.status === 'fulfilled') {
+        setDashboardSummary(summaryResult.value);
+      }
+      if (updatesResult.status === 'fulfilled') {
+        setPetUpdates(updatesResult.value.map(mapPetUpdateRecord));
+      }
+      if (activityResult.status === 'fulfilled') {
+        const mapped = activityResult.value.map(record => mapActivityLogRecord(record));
+        setUser({ ...user, activities: mapped });
+      }
+      if (careResult.status === 'fulfilled') {
+        setCareRequests(careResult.value);
+        try {
+          localStorage.setItem('pawveda_care_requests', JSON.stringify(careResult.value));
+        } catch {
+          // ignore
+        }
+      }
+    };
+    loadDashboardInsights();
+  }, [user.pet, user.isLoggedIn, trendRange]);
+
+  useEffect(() => {
+    const loadTreatsLedger = async () => {
+      if (!user.pet || !user.isLoggedIn) return;
+      const petId = user.pet.id || await ensurePetId();
+      if (!petId) return;
+      const results = await Promise.allSettled([
+        fetchPetUpdates(petId, 3650),
+        fetchActivityLogs(petId, 3650)
+      ]);
+      const [updatesResult, activityResult] = results;
+      const updatesCount = updatesResult.status === 'fulfilled' ? updatesResult.value.length : treatsLedger.updates;
+      const activityCount = activityResult.status === 'fulfilled' ? activityResult.value.length : treatsLedger.activities;
+      setTreatsLedger({ updates: updatesCount, activities: activityCount });
+    };
+    loadTreatsLedger();
+  }, [user.pet, user.isLoggedIn]);
+
   const deductCredit = (type: keyof UserCredits): boolean => {
     if (user.isPremium) return true;
     if (user.credits[type] > 0) {
@@ -273,6 +961,11 @@ const Dashboard: React.FC<Props> = ({ user, setUser, onUpgrade, onLogout }) => {
   const handleLogActivitySubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!deductCredit('activity')) return;
+    const durationMinutes = parseInt(logDuration) || 0;
+    if (durationMinutes <= 0) {
+      showToast('Add activity minutes to save the log.', 'error');
+      return;
+    }
     
     setIsProcessing(true);
     setLoadingMsg(`Syncing Log...`);
@@ -280,30 +973,218 @@ const Dashboard: React.FC<Props> = ({ user, setUser, onUpgrade, onLogout }) => {
     try {
       const weather = `${user.pet?.city} current weather`;
       const advice = await suggestActivity(user.pet!, logType, weather);
-      
-      const newAct: ActivityLog = { 
-        id: Date.now().toString(), 
-        type: logType, 
-        duration: parseInt(logDuration) || 0, 
-        timestamp: new Date(), 
-        advice,
-        notes: logNotes
-      };
-      
+      const petId = user.pet?.id || await ensurePetId();
+      if (!petId) {
+        throw new Error('Unable to locate pet profile.');
+      }
+      const created = await createActivityLog({
+        petId,
+        activityType: logType,
+        durationMinutes,
+        notes: logNotes,
+        occurredAt: logDate ? new Date(`${logDate}T12:00:00`).toISOString() : new Date().toISOString()
+      });
+      const newAct = mapActivityLogRecord(created, advice);
       setUser({ ...user, activities: [newAct, ...user.activities] });
+      setTreatsLedger(prev => ({ ...prev, activities: prev.activities + 1 }));
       setShowLogForm(false);
       setLogNotes('');
       setLogDuration('20');
+      setLogDate(new Date().toISOString().slice(0, 10));
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Unable to save activity log.';
+      showToast(message, 'error');
     } finally { 
       setIsProcessing(false); 
       setLoadingMsg(""); 
     }
   };
 
+  const handleSaveDietLog = async (): Promise<boolean> => {
+    if (!user.pet) return false;
+    const petId = user.pet.id || await ensurePetId();
+    if (!petId) return false;
+    if (!dietLogDraft.dietType && !dietLogDraft.actualFood) {
+      showToast('Add a diet type or food served to save.', 'error');
+      return false;
+    }
+    try {
+      await createDietLog({
+        petId,
+        logDate: dietLogDraft.logDate,
+        mealType: dietLogDraft.mealType,
+        dietType: dietLogDraft.dietType || null,
+        actualFood: dietLogDraft.actualFood || null
+      });
+      setDietLogDraft({ ...dietLogDraft, actualFood: '' });
+      showToast('Diet log saved.', 'success');
+      return true;
+    } catch {
+      showToast('Unable to save diet log.', 'error');
+      return false;
+    }
+  };
+
+  const handleSaveMedicalEvent = async (): Promise<boolean> => {
+    if (!user.pet) return false;
+    const petId = user.pet.id || await ensurePetId();
+    if (!petId) return false;
+    if (!medicalEventDraft.eventType) {
+      showToast('Select a medical event type.', 'error');
+      return false;
+    }
+    const nextEvent: MedicalEventEntry = {
+      id: `${Date.now()}`,
+      eventType: medicalEventDraft.eventType,
+      dateAdministered: medicalEventDraft.dateAdministered || null,
+      nextDue: medicalEventDraft.nextDue || null,
+      verifiedBy: medicalEventDraft.verifiedBy || null,
+      notes: medicalEventDraft.notes || null
+    };
+    const nextEvents = [nextEvent, ...medicalEvents].slice(0, 30);
+    setMedicalEvents(nextEvents);
+    try {
+      localStorage.setItem(getMedicalEventStorageKey(user.pet), JSON.stringify(nextEvents));
+      localStorage.setItem(getLegacyMedicalEventStorageKey(user.pet), JSON.stringify(nextEvents));
+    } catch {
+      // ignore
+    }
+    try {
+      await createMedicalEvent({
+        petId,
+        eventType: medicalEventDraft.eventType,
+        dateAdministered: medicalEventDraft.dateAdministered || null,
+        nextDue: medicalEventDraft.nextDue || null,
+        verifiedBy: medicalEventDraft.verifiedBy || null,
+        notes: medicalEventDraft.notes || null
+      });
+      setMedicalEventDraft({ ...medicalEventDraft, notes: '' });
+      showToast('Medical event saved.', 'success');
+      return true;
+    } catch {
+      showToast('Saved locally. Sync failed—please retry when online.', 'error');
+      return true;
+    }
+  };
+
+  const handleSaveSymptomLog = async (): Promise<boolean> => {
+    if (!user.pet) return false;
+    const petId = user.pet.id || await ensurePetId();
+    if (!petId) return false;
+    if (!symptomLogDraft.symptomType) {
+      showToast('Add a symptom to save.', 'error');
+      return false;
+    }
+    const occurredAt = symptomLogDraft.occurredAt
+      ? new Date(symptomLogDraft.occurredAt).toISOString()
+      : new Date().toISOString();
+    const nextSymptom: SymptomLogEntry = {
+      id: `${Date.now()}`,
+      symptomType: symptomLogDraft.symptomType || 'General',
+      occurredAt,
+      severity: symptomLogDraft.severity,
+      notes: symptomLogDraft.notes || null
+    };
+    const nextLogs = [nextSymptom, ...symptomLogs].slice(0, 30);
+    setSymptomLogs(nextLogs);
+    try {
+      localStorage.setItem(getSymptomLogStorageKey(user.pet), JSON.stringify(nextLogs));
+      localStorage.setItem(getLegacySymptomLogStorageKey(user.pet), JSON.stringify(nextLogs));
+    } catch {
+      // ignore
+    }
+    setSymptomLogDraft({ ...symptomLogDraft, symptomType: '', notes: '' });
+    try {
+      await createSymptomLog({
+        petId,
+        symptomType: nextSymptom.symptomType,
+        occurredAt,
+        severity: nextSymptom.severity,
+        notes: nextSymptom.notes || null
+      });
+      showToast('Symptom log saved.', 'success');
+      return true;
+    } catch {
+      showToast('Saved locally. Sync failed—please retry when online.', 'error');
+      return true;
+    }
+  };
+
+  const handleSaveCareRequest = async () => {
+    if (!user.pet) return;
+    const petId = user.pet.id || await ensurePetId();
+    if (!petId) return;
+    const payload = {
+      petId,
+      requestType: careRequestDraft.type,
+      concern: careRequestDraft.concern || null,
+      notes: careRequestDraft.notes || null,
+      preferredTime: careRequestDraft.preferredTime || null,
+      phone: careRequestDraft.phone || null,
+      location: careRequestDraft.location || null,
+      urgency: careRequestDraft.urgency || null,
+      reportType: careRequestDraft.reportType || null
+    };
+    try {
+      const created = await createCareRequest(payload);
+      const next = [created, ...careRequests];
+      setCareRequests(next);
+      try {
+        localStorage.setItem('pawveda_care_requests', JSON.stringify(next));
+      } catch {
+        // ignore
+      }
+      setShowCareRequest(false);
+      showToast('Request submitted. We will reach out shortly.', 'success');
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Unable to submit request.';
+      showToast(message, 'error');
+    }
+  };
+
+  const handleQuickUpdateSubmit = async () => {
+    let saved = false;
+    if (quickUpdateMode === 'weekly') {
+      saved = await handleSavePetQuickUpdate();
+    } else if (quickUpdateMode === 'diet') {
+      saved = await handleSaveDietLog();
+    } else if (quickUpdateMode === 'medical') {
+      saved = await handleSaveMedicalEvent();
+    } else {
+      saved = await handleSaveSymptomLog();
+    }
+    if (saved) {
+      setShowPetQuickUpdate(false);
+    }
+  };
+
+  const handleSaveFeedback = async () => {
+    if (!user.pet) return;
+    const petId = user.pet.id || await ensurePetId();
+    if (!petId) return;
+    try {
+      const tags = feedbackDraft.tags
+        ? feedbackDraft.tags.split(',').map(tag => tag.trim()).filter(Boolean)
+        : [];
+      await createParentFeedback({
+        petId,
+        rating: feedbackDraft.rating,
+        category: feedbackDraft.category,
+        sentiment: feedbackDraft.sentiment,
+        message: feedbackDraft.message,
+        tags
+      });
+      setFeedbackDraft({ ...feedbackDraft, message: '' });
+      showToast('Feedback sent. Thanks!', 'success');
+    } catch {
+      showToast('Unable to send feedback.', 'error');
+    }
+  };
+
   const handleChecklistToggle = (itemId: string) => {
     const today = dateKey(new Date());
     const yesterday = dateKey(new Date(Date.now() - 86400000));
-    const allIds = getChecklistIds(checklistSections);
+    const allIds = getChecklistIds(mergedChecklistSections);
 
     setChecklistState(prevState => {
       const nextState = { ...prevState, [itemId]: !prevState[itemId] };
@@ -334,6 +1215,74 @@ const Dashboard: React.FC<Props> = ({ user, setUser, onUpgrade, onLogout }) => {
     });
   };
 
+  const handleAddCustomChecklist = () => {
+    if (!customChecklistDraft.label.trim() || !user.pet) return;
+    const nextItem: CustomChecklistItem = {
+      id: `${Date.now()}`,
+      label: customChecklistDraft.label.trim(),
+      frequency: customChecklistDraft.frequency,
+      remindTime: customChecklistDraft.remindTime || undefined,
+      notifyEnabled: customChecklistDraft.notifyEnabled
+    };
+    const next = [nextItem, ...customChecklist];
+    setCustomChecklist(next);
+    persistCustomChecklist(user.pet, next);
+    setCustomChecklistDraft({ label: '', frequency: 'daily', remindTime: '', notifyEnabled: false });
+    showToast('Checklist item added.', 'success');
+  };
+
+  const openChecklistEditor = (item: ChecklistItem, frequency: 'daily' | 'weekly') => {
+    const override = checklistOverrides[item.id];
+    setChecklistEditor({
+      id: item.id,
+      label: override?.label || item.label,
+      frequency,
+      remindTime: override?.remindTime || '',
+      notifyEnabled: override?.notifyEnabled || false
+    });
+  };
+
+  const handleChecklistEditorSave = () => {
+    if (!checklistEditor || !user.pet) return;
+    const next = {
+      ...checklistOverrides,
+      [checklistEditor.id]: {
+        ...checklistOverrides[checklistEditor.id],
+        label: checklistEditor.label,
+        remindTime: checklistEditor.remindTime,
+        notifyEnabled: checklistEditor.notifyEnabled,
+        hidden: false
+      }
+    };
+    setChecklistOverrides(next);
+    persistChecklistOverrides(user.pet, next);
+    setChecklistEditor(null);
+  };
+
+  const handleChecklistEditorRemove = () => {
+    if (!checklistEditor || !user.pet) return;
+    if (checklistEditor.id.startsWith('custom-')) {
+      const customId = checklistEditor.id.replace('custom-', '');
+      const nextCustom = customChecklist.filter(item => item.id !== customId);
+      setCustomChecklist(nextCustom);
+      persistCustomChecklist(user.pet, nextCustom);
+      const { [checklistEditor.id]: _, ...rest } = checklistOverrides;
+      setChecklistOverrides(rest);
+      persistChecklistOverrides(user.pet, rest);
+    } else {
+      const next = {
+        ...checklistOverrides,
+        [checklistEditor.id]: {
+          ...checklistOverrides[checklistEditor.id],
+          hidden: true
+        }
+      };
+      setChecklistOverrides(next);
+      persistChecklistOverrides(user.pet, next);
+    }
+    setChecklistEditor(null);
+  };
+
   const filteredActivities = useMemo(() => {
     return user.activities.filter(a => {
       const matchesType = filterType === 'All' || a.type === filterType;
@@ -359,10 +1308,69 @@ const Dashboard: React.FC<Props> = ({ user, setUser, onUpgrade, onLogout }) => {
     return () => clearInterval(interval);
   }, [dailyBrief]);
 
+  const mergedChecklistSections = useMemo(() => {
+    if (!customChecklist.length) return checklistSections;
+    const dailyItems = customChecklist
+      .filter(item => item.frequency === 'daily')
+      .map(item => ({ id: `custom-${item.id}`, label: item.label }));
+    const weeklyItems = customChecklist
+      .filter(item => item.frequency === 'weekly')
+      .map(item => ({ id: `custom-${item.id}`, label: item.label }));
+    const sections = [...checklistSections];
+    if (dailyItems.length) {
+      sections.push({ id: 'custom-daily', title: 'Custom Daily', items: dailyItems });
+    }
+    if (weeklyItems.length) {
+      sections.push({ id: 'custom-weekly', title: 'Custom Weekly', items: weeklyItems });
+    }
+    return sections;
+  }, [checklistSections, customChecklist]);
+
+  const normalizedChecklistSections = useMemo(() => {
+    return mergedChecklistSections.map(section => ({
+      ...section,
+      items: section.items
+        .filter(item => !checklistOverrides[item.id]?.hidden)
+        .map(item => ({
+          ...item,
+          label: checklistOverrides[item.id]?.label || item.label
+        }))
+    }));
+  }, [mergedChecklistSections, checklistOverrides]);
+
+  const customWeeklyIds = useMemo(() => {
+    return new Set(customChecklist.filter(item => item.frequency === 'weekly').map(item => `custom-${item.id}`));
+  }, [customChecklist]);
+
+  const allChecklistItems = useMemo(() => {
+    return normalizedChecklistSections.flatMap(section => section.items);
+  }, [normalizedChecklistSections]);
+
+  const dailyChecklistItems = useMemo(() => {
+    return allChecklistItems.filter(item => !customWeeklyIds.has(item.id));
+  }, [allChecklistItems, customWeeklyIds]);
+
+  const weeklyChecklistItems = useMemo(() => {
+    return allChecklistItems.filter(item => customWeeklyIds.has(item.id));
+  }, [allChecklistItems, customWeeklyIds]);
+
   const checklistIds = useMemo(
-    () => getChecklistIds(checklistSections),
-    [checklistSections]
+    () => getChecklistIds(normalizedChecklistSections),
+    [normalizedChecklistSections]
   );
+
+  useEffect(() => {
+    if (!checklistIds.length) return;
+    setChecklistState(prevState => {
+      const nextState = { ...prevState };
+      checklistIds.forEach(id => {
+        if (nextState[id] === undefined) {
+          nextState[id] = false;
+        }
+      });
+      return nextState;
+    });
+  }, [checklistIds]);
   const checklistCompletedCount = useMemo(
     () => checklistIds.filter(id => checklistState[id]).length,
     [checklistIds, checklistState]
@@ -370,6 +1378,14 @@ const Dashboard: React.FC<Props> = ({ user, setUser, onUpgrade, onLogout }) => {
   const checklistProgress = checklistIds.length
     ? Math.round((checklistCompletedCount / checklistIds.length) * 100)
     : 0;
+  const treatPoints = useMemo(() => {
+    return (
+      checklistCompletedCount * 2 +
+      checklistStreak * 3 +
+      treatsLedger.activities * 1 +
+      treatsLedger.updates * 5
+    );
+  }, [checklistCompletedCount, checklistStreak, treatsLedger.activities, treatsLedger.updates]);
 
   const activeBriefItem = dailyBrief?.items?.[briefIndex];
 
@@ -439,6 +1455,397 @@ const Dashboard: React.FC<Props> = ({ user, setUser, onUpgrade, onLogout }) => {
     return items;
   }, [upcomingReminders, petEvents]);
 
+  const rangeDays = trendRange === 'daily' ? 1 : trendRange === 'weekly' ? 7 : 30;
+  const rangeLabel = trendRange === 'daily' ? 'Last 24 hours' : trendRange === 'weekly' ? 'Last 7 days' : 'Last 30 days';
+  const formatDate = (value?: string) =>
+    value ? new Date(value).toLocaleDateString('en-IN', { month: 'short', day: 'numeric' }) : '—';
+  const activeQuickUpdateMode = useMemo(
+    () => QUICK_UPDATE_MODES.find((mode) => mode.value === quickUpdateMode) || QUICK_UPDATE_MODES[0],
+    [quickUpdateMode]
+  );
+  const trendAction = useMemo(() => {
+    if (trendRange === 'daily') {
+      return { label: 'Add Daily Log', mode: 'symptom' as QuickUpdateMode };
+    }
+    if (trendRange === 'monthly') {
+      return { label: 'Add Monthly Log', mode: 'medical' as QuickUpdateMode };
+    }
+    return { label: 'Add Weekly Check-in', mode: 'weekly' as QuickUpdateMode };
+  }, [trendRange]);
+
+  const getRangeUpdates = (days: number, offset: number) => {
+    const end = new Date();
+    end.setDate(end.getDate() - offset * days);
+    const start = new Date();
+    start.setDate(start.getDate() - (offset + 1) * days);
+    return petUpdates.filter(entry => {
+      const entryDate = new Date(entry.date);
+      return entryDate > start && entryDate <= end;
+    });
+  };
+
+  const currentRangeUpdates = useMemo(() => getRangeUpdates(rangeDays, 0), [petUpdates, rangeDays]);
+  const previousRangeUpdates = useMemo(() => getRangeUpdates(rangeDays, 1), [petUpdates, rangeDays]);
+
+  const sortedCheckins = useMemo(() => {
+    return [...petUpdates].sort((a, b) => b.date.localeCompare(a.date));
+  }, [petUpdates]);
+
+  const compareActivity = (value?: string) => {
+    const map: Record<string, number> = { Low: 1, Moderate: 2, High: 3 };
+    return value ? map[value] ?? 0 : 0;
+  };
+
+  const compareDiet = (value?: string) => {
+    const map: Record<string, number> = { 'Home Cooked': 3, Mixed: 2, Kibble: 1 };
+    return value ? map[value] ?? 0 : 0;
+  };
+
+  const insightSeries = useMemo(() => {
+    const recent = currentRangeUpdates.length
+      ? [...currentRangeUpdates].sort((a, b) => a.date.localeCompare(b.date))
+      : [...sortedCheckins].slice(0, 6).reverse();
+    const values = recent.map(entry => {
+      if (insightMetric === 'weight') {
+        const value = Number(entry.weight);
+        return Number.isNaN(value) ? null : value;
+      }
+      if (insightMetric === 'activity') {
+        return compareActivity(entry.activityLevel);
+      }
+      return compareDiet(entry.dietType);
+    });
+    const clean = values.filter((value): value is number => value !== null && value !== 0);
+    if (clean.length < 2) {
+      return { points: '', ready: false };
+    }
+    const min = Math.min(...clean);
+    const max = Math.max(...clean);
+    const range = Math.max(max - min, 1);
+    const width = 260;
+    const height = 90;
+    const padding = 10;
+    const step = (width - padding * 2) / Math.max(values.length - 1, 1);
+    const points = values
+      .map((value, index) => {
+        const safe = value === null ? min : value;
+        const normalized = (safe - min) / range;
+        const x = padding + index * step;
+        const y = height - padding - normalized * (height - padding * 2);
+        return `${x},${y}`;
+      })
+      .join(' ');
+    return { points, ready: true };
+  }, [currentRangeUpdates, sortedCheckins, insightMetric]);
+
+  const insightData = useMemo(() => {
+    const recent = currentRangeUpdates.length
+      ? [...currentRangeUpdates].sort((a, b) => a.date.localeCompare(b.date))
+      : [...sortedCheckins].slice(0, 6).reverse();
+    const labels = recent.map(entry => formatDate(entry.date));
+    const activityValues = recent.map(entry => compareActivity(entry.activityLevel));
+    const activityLabels = recent.map(entry => entry.activityLevel || '—');
+    const activityMax = Math.max(...activityValues, 1);
+    const activityBars = activityValues.map(value => Math.round((value / activityMax) * 100));
+    const dietValues = recent.map(entry => entry.dietType || '—');
+    const dietCounts = dietValues.reduce<Record<string, number>>((acc, value) => {
+      acc[value] = (acc[value] || 0) + 1;
+      return acc;
+    }, {});
+    const totalDiet = dietValues.length || 1;
+    return {
+      labels,
+      dietCounts,
+      totalDiet,
+      firstLabel: labels[0] || '—',
+      lastLabel: labels[labels.length - 1] || '—',
+      firstValue: recent[0]?.weight || '—',
+      lastValue: recent[recent.length - 1]?.weight || '—'
+    };
+  }, [currentRangeUpdates, sortedCheckins, formatDate, compareActivity]);
+
+  const activityMinutesByType = useMemo(() => {
+    const now = Date.now();
+    const cutoff = now - rangeDays * 24 * 60 * 60 * 1000;
+    const totals = { Walk: 0, Play: 0, Train: 0 };
+    user.activities.forEach(entry => {
+      const timestamp = entry.timestamp instanceof Date ? entry.timestamp.getTime() : new Date(entry.timestamp).getTime();
+      if (timestamp < cutoff) return;
+      const type = entry.type === 'Training' ? 'Train' : entry.type;
+      if (type in totals) {
+        totals[type as keyof typeof totals] += entry.duration || 0;
+      }
+    });
+    return totals;
+  }, [user.activities, rangeDays]);
+
+  const activityRangeMinutes = useMemo(() => {
+    return Object.values(activityMinutesByType).reduce((sum, value) => sum + value, 0);
+  }, [activityMinutesByType]);
+
+  const insightEntries = useMemo(() => {
+    return currentRangeUpdates.length
+      ? [...currentRangeUpdates].sort((a, b) => a.date.localeCompare(b.date))
+      : [...sortedCheckins].slice(0, 6).reverse();
+  }, [currentRangeUpdates, sortedCheckins]);
+
+  const weightChartData = useMemo(() => {
+    return insightEntries.map(entry => ({
+      date: formatDate(entry.date),
+      weight: Number(entry.weight)
+    })).filter(entry => !Number.isNaN(entry.weight));
+  }, [insightEntries, formatDate]);
+
+  const activityBarData = useMemo(() => {
+    return (['Walk', 'Play', 'Train'] as const).map(type => ({
+      level: type,
+      minutes: activityMinutesByType[type]
+    }));
+  }, [activityMinutesByType]);
+
+  const dietPieData = useMemo(() => {
+    return [
+      { name: 'Home Cooked', value: insightData.dietCounts['Home Cooked'] || 0, color: '#A25A20' },
+      { name: 'Mixed', value: insightData.dietCounts['Mixed'] || 0, color: '#D28A5C' },
+      { name: 'Kibble', value: insightData.dietCounts['Kibble'] || 0, color: '#F3C9A7' }
+    ];
+  }, [insightData.dietCounts]);
+
+  const latestRangeUpdate = currentRangeUpdates[0] ?? null;
+  const previousRangeUpdate = previousRangeUpdates[0] ?? null;
+
+  const weightLatestLabel = latestRangeUpdate?.weight
+    ? `${latestRangeUpdate.weight}kg`
+    : user.pet?.weight
+    ? `${user.pet.weight}kg`
+    : '—';
+
+  const weightDeltaLabel = (() => {
+    if (latestRangeUpdate?.weight && previousRangeUpdate?.weight) {
+      const latestWeight = Number(latestRangeUpdate.weight);
+      const previousWeight = Number(previousRangeUpdate.weight);
+      if (!Number.isNaN(latestWeight) && !Number.isNaN(previousWeight)) {
+        const delta = Number((latestWeight - previousWeight).toFixed(1));
+        if (delta === 0) return 'No change vs previous period';
+        return `${delta > 0 ? '+' : ''}${delta}kg vs previous period`;
+      }
+    }
+    return 'Log two entries to compare';
+  })();
+
+  const weightTrendValue = (() => {
+    if (latestRangeUpdate?.weight && previousRangeUpdate?.weight) {
+      const latestWeight = Number(latestRangeUpdate.weight);
+      const previousWeight = Number(previousRangeUpdate.weight);
+      if (!Number.isNaN(latestWeight) && !Number.isNaN(previousWeight)) {
+        const delta = Number((latestWeight - previousWeight).toFixed(1));
+        if (delta === 0) return 'Stable';
+        return `${delta > 0 ? '+' : ''}${delta}kg`;
+      }
+    }
+    return latestRangeUpdate?.weight ? `${latestRangeUpdate.weight}kg` : '—';
+  })();
+
+  const activityTrendValue = (() => {
+    const latest = latestRangeUpdate?.activityLevel || user.pet?.activityLevel || '—';
+    const previous = previousRangeUpdate?.activityLevel || '';
+    if (!previous || latest === '—') return latest;
+    const diff = compareActivity(latest) - compareActivity(previous);
+    if (diff === 0) return `${latest} (steady)`;
+    return `${latest} (${diff > 0 ? 'up' : 'down'})`;
+  })();
+
+  const dietTrendValue = (() => {
+    const latest = latestRangeUpdate?.dietType || user.pet?.dietType || '—';
+    const previous = previousRangeUpdate?.dietType || '';
+    if (!previous || latest === '—') return latest;
+    return latest === previous ? `${latest} (steady)` : `${latest} (changed)`;
+  })();
+
+  const activityLast24Hours = useMemo(() => {
+    const cutoff = Date.now() - 24 * 60 * 60 * 1000;
+    return user.activities.reduce((sum, entry) => {
+      const timestamp = entry.timestamp instanceof Date ? entry.timestamp.getTime() : new Date(entry.timestamp).getTime();
+      if (timestamp >= cutoff) {
+        return sum + (entry.duration || 0);
+      }
+      return sum;
+    }, 0);
+  }, [user.activities]);
+
+  const trendCoverage = useMemo(() => {
+    return {
+      current: currentRangeUpdates.length,
+      previous: previousRangeUpdates.length,
+      total: petUpdates.length
+    };
+  }, [currentRangeUpdates.length, previousRangeUpdates.length, petUpdates.length]);
+
+  const trendComparisonReady = trendCoverage.current > 0 && trendCoverage.previous > 0;
+  const aimTargets = useMemo(() => {
+    const activityBaseline = user.pet?.activityBaseline;
+    const activityLevel = user.pet?.activityLevel || latestRangeUpdate?.activityLevel;
+    const activityTarget = activityBaseline || (
+      activityLevel === 'High'
+        ? '60-90 min/day'
+        : activityLevel === 'Low'
+        ? '20-30 min/day'
+        : '30-60 min/day'
+    );
+    const dietTarget = user.pet?.feedingSchedule
+      ? `${user.pet.feedingSchedule} meals/day`
+      : 'Consistent meal timing';
+    return {
+      activityTarget,
+      dietTarget,
+      hydrationTarget: 'Fresh water at all times'
+    };
+  }, [user.pet, latestRangeUpdate?.activityLevel]);
+
+  const redFlags = useMemo(() => {
+    const flags: string[] = [];
+    if (dashboardSummary?.flags?.length) {
+      flags.push(...dashboardSummary.flags.map(flag => `${flag} needs attention`));
+    }
+    if (latestRangeUpdate?.weight && previousRangeUpdate?.weight) {
+      const latestWeight = Number(latestRangeUpdate.weight);
+      const previousWeight = Number(previousRangeUpdate.weight);
+      if (!Number.isNaN(latestWeight) && !Number.isNaN(previousWeight) && previousWeight > 0) {
+        const deltaPct = Math.abs(latestWeight - previousWeight) / previousWeight;
+        if (deltaPct >= 0.05) {
+          flags.push('Weight change >5% since last period');
+        }
+      }
+    }
+    if (!flags.length) {
+      flags.push('No red flags detected');
+    }
+    return flags;
+  }, [dashboardSummary?.flags, latestRangeUpdate?.weight, previousRangeUpdate?.weight]);
+
+  const checkinCalendar = useMemo(() => {
+    const now = new Date();
+    const year = now.getFullYear();
+    const month = now.getMonth();
+    const firstDay = new Date(year, month, 1);
+    const startOffset = firstDay.getDay();
+    const daysInMonth = new Date(year, month + 1, 0).getDate();
+    const days = Array.from({ length: daysInMonth }, (_, idx) => idx + 1);
+    const checkinDays = new Set(
+      sortedCheckins.map(entry => {
+        const date = new Date(entry.date);
+        return date.getMonth() === month && date.getFullYear() === year ? date.getDate() : null;
+      }).filter((day): day is number => day !== null)
+    );
+    const streakDays = new Set(
+      checklistHistory.map(point => {
+        if (point.completion < 80) return null;
+        const date = new Date(point.date);
+        return date.getMonth() === month && date.getFullYear() === year ? date.getDate() : null;
+      }).filter((day): day is number => day !== null)
+    );
+    return { days, startOffset, checkinDays, streakDays, monthLabel: now.toLocaleDateString('en-US', { month: 'long', year: 'numeric' }) };
+  }, [sortedCheckins, checklistHistory]);
+
+  const checklistStreakBars = useMemo(() => {
+    const today = new Date();
+    const historyMap = new Map(
+      checklistHistory.map(point => [point.date.slice(0, 10), point.completion])
+    );
+    return Array.from({ length: 7 }, (_, idx) => {
+      const date = new Date(today);
+      date.setDate(today.getDate() - (6 - idx));
+      const key = date.toISOString().slice(0, 10);
+      const completion = historyMap.get(key) ?? 0;
+      return {
+        key,
+        completion,
+        label: date.toLocaleDateString('en-US', { weekday: 'short' })
+      };
+    });
+  }, [checklistHistory]);
+
+  const selectedCheckin = useMemo(() => {
+    if (selectedCheckinId === 'latest') return sortedCheckins[0] || null;
+    if (selectedCheckinId.startsWith('legacy-')) {
+      const index = Number(selectedCheckinId.replace('legacy-', ''));
+      return Number.isNaN(index) ? null : sortedCheckins[index] || null;
+    }
+    return sortedCheckins.find(entry => entry.id === selectedCheckinId) || null;
+  }, [selectedCheckinId, sortedCheckins]);
+
+  const symptomMetric = dashboardSummary?.symptomSignal;
+  const medicalMetric = dashboardSummary?.medicalCompliance;
+
+  const symptomDetails = useMemo(() => {
+    if (symptomLogs.length) {
+      return symptomLogs
+        .slice(0, 4)
+        .map(entry => ({
+          label: entry.symptomType,
+          severity: entry.severity,
+          occurredAt: entry.occurredAt
+        }));
+    }
+    const detail = dashboardSummary?.symptomSignal?.detail || '';
+    return detail
+      .split(/[,;•]/)
+      .map(item => item.trim())
+      .filter(Boolean)
+      .slice(0, 4)
+      .map(item => ({ label: item, severity: 0, occurredAt: '' }));
+  }, [dashboardSummary?.symptomSignal?.detail, symptomLogs]);
+
+  const weeklyCheckinStats = useMemo(() => {
+    const weekKey = (date: Date) => {
+      const start = new Date(Date.UTC(date.getFullYear(), 0, 1));
+      const diff = Math.floor((date.getTime() - start.getTime()) / 86400000);
+      return `${date.getFullYear()}-W${Math.ceil((diff + start.getUTCDay() + 1) / 7)}`;
+    };
+    const now = new Date();
+    const weeks = Array.from({ length: 7 }).map((_, idx) => {
+      const end = new Date(now);
+      end.setDate(end.getDate() - idx * 7);
+      const start = new Date(end);
+      start.setDate(start.getDate() - 6);
+      const key = weekKey(end);
+      const count = petUpdates.filter(entry => {
+        const entryDate = new Date(entry.date);
+        return entryDate >= start && entryDate <= end;
+      }).length;
+      return { key, start, end, count };
+    }).reverse();
+
+    let streak = 0;
+    for (let i = weeks.length - 1; i >= 0; i -= 1) {
+      if (weeks[i].count > 0) {
+        streak += 1;
+      } else {
+        break;
+      }
+    }
+
+    const completion = weeks.reduce((sum, item) => sum + (item.count > 0 ? 1 : 0), 0);
+    const completionRate = Math.round((completion / weeks.length) * 100);
+
+    const nextCheckin = new Date(now);
+    nextCheckin.setDate(nextCheckin.getDate() + (7 - nextCheckin.getDay()));
+
+    return { weeks, streak, completionRate, nextCheckin };
+  }, [petUpdates]);
+
+  const handleTreatClaim = () => {
+    if (!user.pet) return;
+    const nextClaimed = Math.min(treatPoints, claimedTreats + Math.max(treatPoints - claimedTreats, 0));
+    setClaimedTreats(nextClaimed);
+    try {
+      localStorage.setItem(getTreatsStorageKey(user.pet), JSON.stringify(nextClaimed));
+    } catch {
+      // ignore
+    }
+    showToast('Treats claimed! Keep logging to unlock more.', 'success');
+  };
+
   const handleReminderSave = () => {
     if (!reminderDraft.title || !reminderDraft.date) return;
     const entry = {
@@ -505,34 +1912,107 @@ const Dashboard: React.FC<Props> = ({ user, setUser, onUpgrade, onLogout }) => {
 
   return (
     <div className="min-h-screen bg-[#FDFCFB] pb-40 scroll-smooth">
-      <header className="px-6 py-8 flex items-center justify-between sticky top-0 bg-white/90 backdrop-blur-2xl z-50 border-b border-brand-50 shadow-sm">
-        <div className="flex items-center gap-5 cursor-pointer" onClick={() => setActiveTab('parent')}>
-          <div className="relative group">
-            <img src={`https://picsum.photos/seed/${user.pet?.name}/200`} className="w-14 h-14 rounded-3xl object-cover border-4 border-brand-500/10 shadow-xl group-hover:scale-110 transition-transform duration-500" alt="Pet" />
-            <div className="absolute -bottom-1 -right-1 w-5 h-5 bg-green-500 rounded-full border-4 border-white shadow-sm" />
+      {toast && (
+        <div
+          role="status"
+          aria-live="polite"
+          className={`fixed top-6 left-1/2 z-[140] w-[calc(100%-3rem)] max-w-md -translate-x-1/2 rounded-2xl px-5 py-4 text-sm font-semibold shadow-2xl border backdrop-blur-xl bg-white/70 animate-in slide-in-from-top-2 duration-300 md:left-auto md:right-6 md:translate-x-0 md:max-w-sm ${
+            toast.tone === 'success'
+              ? 'text-emerald-900 border-emerald-200 shadow-emerald-200/40'
+              : 'text-red-900 border-red-200 shadow-red-200/40'
+          }`}
+        >
+          {toast.message}
+        </div>
+      )}
+      <header className="px-4 py-3 sticky top-0 bg-white/90 backdrop-blur-2xl z-50 border-b border-brand-50 shadow-sm">
+        <div className="flex items-start justify-between gap-3">
+          <div className="relative">
+            <button
+              onClick={() => setShowProfileMenu(prev => !prev)}
+              className="w-10 h-10 rounded-2xl bg-brand-50 border border-brand-100 flex items-center justify-center shadow-sm hover:shadow-md transition-all"
+              aria-label="Menu"
+            >
+              <span className="text-xl">≡</span>
+            </button>
+            {showProfileMenu && (
+              <div className="absolute left-0 mt-3 w-[240px] max-w-[85vw] bg-white border border-brand-100 rounded-[1.75rem] shadow-2xl p-4 z-[130] space-y-4">
+                <div>
+                  <p className="text-[9px] font-black uppercase tracking-[0.3em] text-brand-400 mb-2">Profiles</p>
+                  <div className="grid grid-cols-1 gap-2">
+                    {[
+                      { label: 'Edit Parent Profile', action: () => { openParentProfile(); setActiveTab('parent'); } },
+                      { label: 'Edit Pet Profile', action: openPetProfileEditor },
+                      { label: 'Earn Pet Treats', action: () => setShowTreats(true) }
+                    ].map(item => (
+                      <button
+                        key={item.label}
+                        onClick={() => {
+                          item.action();
+                          setShowProfileMenu(false);
+                        }}
+                        className="w-full text-left bg-white border border-brand-100 rounded-xl px-4 py-3 text-[10px] font-black uppercase tracking-widest text-brand-700 hover:border-brand-300"
+                      >
+                        {item.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
-          <div>
-            <h1 className="text-2xl font-display font-black text-brand-900 tracking-tight leading-none mb-1">{user.pet?.name}</h1>
-            <p className="text-[10px] font-black text-brand-500 uppercase tracking-widest">{user.pet?.city} Active Node</p>
+
+          <div className="flex-1 min-w-0 px-1 cursor-pointer" onClick={() => setActiveTab('parent')}>
+            <h1 className="text-lg sm:text-xl font-display font-black text-brand-900 tracking-tight leading-none truncate">
+              {user.pet?.name || 'PawVeda'}
+            </h1>
+            <p className="text-[10px] font-black text-brand-500 uppercase tracking-widest truncate">
+              {user.pet?.city ? `${user.pet.city} Active Node` : 'Active Node'}
+            </p>
+          </div>
+
+          <div className="flex flex-col items-end gap-2">
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => setShowNotifications(!showNotifications)}
+                className="relative w-10 h-10 rounded-2xl bg-brand-50 flex items-center justify-center shadow-sm hover:shadow-md transition-all"
+                aria-label="Notifications"
+              >
+                <span className="text-lg">🔔</span>
+                {notifications.length > 0 && (
+                  <span className="absolute -top-1 -right-1 w-4 h-4 bg-brand-500 text-white text-[8px] font-black rounded-full flex items-center justify-center">
+                    {notifications.length}
+                  </span>
+                )}
+              </button>
+              <button
+                onClick={() => setActiveTab('parent')}
+                className="relative"
+                aria-label="Profile"
+              >
+                <img
+                  src={`https://picsum.photos/seed/${user.pet?.name}/200`}
+                  className="w-10 h-10 rounded-3xl object-cover border-4 border-brand-500/10 shadow-xl"
+                  alt="Pet"
+                />
+                <div className="absolute -bottom-1 -right-1 w-4 h-4 bg-green-500 rounded-full border-2 border-white shadow-sm" />
+              </button>
+            </div>
           </div>
         </div>
-        <div className="flex gap-4">
+        <div className="mt-2 flex items-center justify-between">
           <button
-            onClick={() => setShowNotifications(!showNotifications)}
-            className="relative w-12 h-12 rounded-2xl bg-brand-50 flex items-center justify-center shadow-sm hover:shadow-md transition-all"
-            aria-label="Notifications"
+            onClick={() => setShowTreats(true)}
+            className="flex items-center gap-2 px-4 py-2 rounded-2xl bg-brand-50 border border-brand-100 text-[9px] font-black uppercase tracking-widest text-brand-700 shadow-sm hover:shadow-md transition-all"
+            aria-label="Pet treats"
           >
-            <span className="text-lg">🔔</span>
-            {notifications.length > 0 && (
-              <span className="absolute -top-1 -right-1 w-4 h-4 bg-brand-500 text-white text-[8px] font-black rounded-full flex items-center justify-center">
-                {notifications.length}
-              </span>
-            )}
+            <span className="text-base">🍖</span>
+            {treatPoints} Treats
           </button>
           {!user.isPremium && (
             <button
               onClick={() => setShowPayment(true)}
-              className="bg-brand-900 text-white px-6 py-3 rounded-2xl text-[10px] font-black uppercase tracking-widest shadow-xl hover:bg-brand-500 transition-all active:scale-95"
+              className="bg-brand-900 text-white px-4 py-2 rounded-2xl text-[9px] font-black uppercase tracking-widest shadow-xl hover:bg-brand-500 transition-all active:scale-95"
             >
               Upgrade
             </button>
@@ -575,6 +2055,28 @@ const Dashboard: React.FC<Props> = ({ user, setUser, onUpgrade, onLogout }) => {
                       className={`h-2 w-2 rounded-full transition-all ${index === briefIndex ? 'bg-brand-500' : 'bg-white/30'}`}
                     />
                   ))}
+                </div>
+              </div>
+
+              <div className="bg-white p-10 rounded-[4rem] border border-brand-50 shadow-sm space-y-6">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <h3 className="text-2xl font-display font-black text-brand-900">Today’s Priorities</h3>
+                    <p className="text-brand-800/40 text-sm font-medium">What matters most for {user.pet?.name}.</p>
+                  </div>
+                  <span className="text-[9px] font-black uppercase tracking-widest text-brand-400">{rangeLabel}</span>
+                </div>
+                <div className="space-y-3">
+                  {(dailyBrief?.items || []).slice(0, 3).map(item => (
+                    <div key={item.id} className="bg-brand-50/60 p-4 rounded-2xl border border-brand-100">
+                      <p className="text-[10px] font-black uppercase tracking-widest text-brand-400">{item.badge}</p>
+                      <p className="text-lg font-display font-black text-brand-900">{item.title}</p>
+                      <p className="text-xs text-brand-800/70 font-medium italic">"{item.detail}"</p>
+                    </div>
+                  ))}
+                  {(!dailyBrief?.items || dailyBrief.items.length === 0) && (
+                    <p className="text-sm text-brand-800/60 font-medium">Log a weekly check-in to personalize priorities.</p>
+                  )}
                 </div>
               </div>
 
@@ -634,8 +2136,8 @@ const Dashboard: React.FC<Props> = ({ user, setUser, onUpgrade, onLogout }) => {
                   <span className="text-[9px] font-bold text-brand-300 uppercase tracking-widest">Vet + Community</span>
                 </div>
                 <div className="max-h-[520px] overflow-y-auto pr-2 space-y-4 live-feed-scroll">
-                  {liveFeedItems.map(item => (
-                    <div key={item.id} className="bg-brand-50/40 p-4 rounded-2xl">
+                  {liveFeedItems.map((item, index) => (
+                    <div key={`${item.id}-${index}`} className="bg-brand-50/40 p-4 rounded-2xl">
                       <div className="flex items-center justify-between mb-2">
                         <span className="text-[8px] font-black uppercase tracking-widest text-brand-500">
                           {item.type === 'tip' ? 'Vet Verified' : item.type === 'event' ? 'Community' : 'Safety Radar'}
@@ -771,8 +2273,8 @@ const Dashboard: React.FC<Props> = ({ user, setUser, onUpgrade, onLogout }) => {
             <div className="bg-brand-50 p-10 rounded-[4rem] border border-brand-100 space-y-8">
               <div className="flex items-center justify-between">
                 <div className="space-y-2">
-                  <h3 className="text-2xl font-display font-black text-brand-900 tracking-tight">Pet Care Checklist</h3>
-                  <p className="text-brand-800/40 text-sm font-medium">Daily habits for long-term health.</p>
+                  <h3 className="text-2xl font-display font-black text-brand-900 tracking-tight">Care Protocol</h3>
+                  <p className="text-brand-800/40 text-sm font-medium">Tailored steps based on {user.pet?.breed || 'your pet'} and home setup.</p>
                 </div>
                 <div className="text-right">
                   <p className="text-[10px] font-black uppercase tracking-widest text-brand-500">Streak</p>
@@ -794,7 +2296,7 @@ const Dashboard: React.FC<Props> = ({ user, setUser, onUpgrade, onLogout }) => {
               </div>
 
               <div className="space-y-4">
-                {checklistSections.map((section, index) => (
+                {mergedChecklistSections.map((section, index) => (
                   <div key={section.id} className="bg-white rounded-[2rem] border border-brand-50 shadow-sm overflow-hidden">
                     <button 
                       onClick={() => setExpandedChecklist(expandedChecklist === index ? null : index)}
@@ -845,6 +2347,66 @@ const Dashboard: React.FC<Props> = ({ user, setUser, onUpgrade, onLogout }) => {
                     </div>
                   </div>
                 ))}
+              </div>
+            </div>
+
+            <div className="space-y-6">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h3 className="text-2xl font-display font-black text-brand-900 tracking-tight">Guides & Blogs</h3>
+                  <p className="text-brand-800/40 text-sm font-medium">Short reads tailored to daily care.</p>
+                </div>
+                <Link
+                  to="/blog"
+                  className="text-[10px] font-black uppercase tracking-widest text-brand-500 underline underline-offset-4"
+                >
+                  Browse all →
+                </Link>
+              </div>
+              <div className="grid gap-4 md:grid-cols-2">
+                {getAllBlogs().slice(0, 4).map(entry => (
+                  <Link
+                    key={`${entry.petType}/${entry.slug}`}
+                    to={`/blog/${entry.petType}/${entry.slug}`}
+                    className="block bg-white/90 border border-brand-50 rounded-[2rem] p-6 shadow-sm hover:border-brand-200 hover:shadow-lg transition-all"
+                  >
+                    <div className="flex items-center justify-between gap-4">
+                      <h4 className="text-lg font-display font-black text-brand-900">{entry.title}</h4>
+                      <span className="text-[9px] font-black uppercase tracking-widest text-brand-500">{entry.petType}</span>
+                    </div>
+                    <p className="text-xs text-brand-800/60 mt-2">{entry.description || 'Read the full guide on PawVeda.'}</p>
+                    <div className="flex items-center gap-3 text-[9px] font-black uppercase tracking-widest text-brand-400 mt-4">
+                      <span>{entry.readingMinutes} min read</span>
+                      <span>•</span>
+                      <span>{entry.wordCount} words</span>
+                    </div>
+                  </Link>
+                ))}
+              </div>
+              <div className="bg-white/90 border border-brand-50 rounded-[2.5rem] p-8 shadow-sm space-y-6">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-[10px] font-black uppercase tracking-[0.4em] text-brand-500">Feeling Geeky?</p>
+                    <h3 className="text-2xl font-display font-black text-brand-900">Expert sources behind the guidance</h3>
+                  </div>
+                  <span className="text-[10px] font-black uppercase tracking-widest text-brand-300">Tap to read</span>
+                </div>
+                <div className="grid gap-4 md:grid-cols-2">
+                  {GEEKY_CARDS.map(card => (
+                    <a
+                      key={card.source}
+                      href={card.source}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="block bg-brand-50/70 border border-brand-100 rounded-[2rem] p-6 hover:border-brand-300 hover:shadow-lg transition-all"
+                    >
+                      <p className="text-[10px] font-black uppercase tracking-[0.35em] text-brand-400">Source Flashcard</p>
+                      <h4 className="text-lg font-display font-black text-brand-900 mt-3">{card.title}</h4>
+                      <p className="text-xs text-brand-800/60 mt-2">{card.summary}</p>
+                      <span className="inline-flex mt-4 text-[10px] font-black uppercase tracking-[0.35em] text-brand-500">Open Source →</span>
+                    </a>
+                  ))}
+                </div>
               </div>
             </div>
           </div>
@@ -928,6 +2490,15 @@ const Dashboard: React.FC<Props> = ({ user, setUser, onUpgrade, onLogout }) => {
                         <span className="text-[10px] uppercase tracking-widest mt-2 block">{type}</span>
                       </button>
                     ))}
+                  </div>
+                  <div className="space-y-4">
+                    <label className="text-[10px] font-black text-brand-500 uppercase tracking-widest ml-2">Log Date</label>
+                    <input
+                      type="date"
+                      value={logDate}
+                      onChange={e => setLogDate(e.target.value)}
+                      className="w-full bg-brand-50 border-none rounded-[2rem] px-8 py-6 outline-none focus:ring-4 focus:ring-brand-500/10 transition-all text-xl font-bold text-brand-900"
+                    />
                   </div>
                   <div className="space-y-4">
                     <label className="text-[10px] font-black text-brand-500 uppercase tracking-widest ml-2">Duration (Minutes)</label>
@@ -1070,143 +2641,786 @@ const Dashboard: React.FC<Props> = ({ user, setUser, onUpgrade, onLogout }) => {
         {/* PARENT DASHBOARD */}
         {activeTab === 'parent' && (
           <div className="space-y-12 animate-reveal pb-20">
-            <h2 className="text-5xl font-display font-black text-brand-900 leading-none tracking-tight">Parent Dashboard</h2>
-            <div className="grid grid-cols-2 gap-8">
-              {[
-                { label: 'Intelligence Rank', value: user.isPremium ? 'Elite Node' : 'Basic Node', icon: '💎' },
-                { label: 'Metabolic Score', value: '96%', icon: '🔥' },
-                { label: 'Monthly Efforts', value: user.activities.length, icon: '🛡️' },
-                { label: 'Vitals Status', value: 'Synced', icon: '📊' }
-              ].map((metric, i) => (
-                <div key={i} className="bg-white p-12 rounded-[4.5rem] border border-brand-50 shadow-sm flex flex-col items-center text-center group hover:shadow-2xl transition-all duration-500">
-                  <span className="text-5xl mb-6 group-hover:scale-110 transition-transform">{metric.icon}</span>
-                  <span className="text-brand-500 font-black text-[9px] uppercase tracking-[0.3em] mb-2">{metric.label}</span>
-                  <div className="text-4xl font-display font-black text-brand-900 tracking-tighter">{metric.value}</div>
-                </div>
-              ))}
-            </div>
-
-            <div className="bg-white rounded-[4.5rem] border border-brand-50 p-12 space-y-8 shadow-sm">
-              <div className="flex items-center justify-between">
-                <div>
-                  <h3 className="text-2xl font-display font-black text-brand-900">Care Momentum</h3>
-                  <p className="text-brand-800/40 text-sm font-medium">Weekly checklist consistency.</p>
-                </div>
-                <div className="text-right">
-                  <p className="text-[10px] font-black uppercase tracking-widest text-brand-500">Current Streak</p>
-                  <p className="text-2xl font-display font-black text-brand-900">{checklistStreak} days</p>
-                </div>
-              </div>
-              <div className="grid grid-cols-7 gap-3">
-                {checklistHistory.map(point => (
-                  <div key={point.date} className="flex flex-col items-center gap-2">
-                    <div className="w-full h-20 bg-brand-50 rounded-2xl flex items-end">
-                      <div
-                        className="w-full bg-brand-500 rounded-2xl transition-all"
-                        style={{ height: `${Math.max(point.completion, 5)}%` }}
-                      />
-                    </div>
-                    <span className="text-[8px] font-bold text-brand-400 uppercase tracking-widest">
-                      {point.date.slice(5)}
-                    </span>
-                  </div>
-                ))}
+            <div className="flex flex-col md:flex-row md:items-end md:justify-between gap-6">
+              <div>
+                <h2 className="text-5xl font-display font-black text-brand-900 leading-none tracking-tight">Parent Dashboard</h2>
+                <p className="text-brand-800/40 text-lg font-medium italic mt-2">Keep profiles fresh for smarter insights.</p>
               </div>
             </div>
-
-            <div className="bg-white rounded-[4.5rem] border border-brand-50 p-12 space-y-8 shadow-sm">
-              <div className="flex items-center justify-between">
-                <div>
-                  <h3 className="text-2xl font-display font-black text-brand-900">Parent Actions</h3>
-                  <p className="text-brand-800/40 text-sm font-medium">Quick access to essential care.</p>
-                </div>
-                <span className="text-[10px] font-black text-brand-300 uppercase tracking-widest">Premium Ready</span>
-              </div>
-                <div className="grid grid-cols-2 gap-4">
-                  {[
-                    { label: "Contact a Vet", sub: "Call or chat", icon: "📞" },
-                    { label: "Book Consultation", sub: "Video or clinic", icon: "🩺" },
-                    { label: "Emergency Help", sub: "24/7 guidance", icon: "🚨" },
-                    { label: "Upload Records", sub: "Store reports", icon: "📄" }
-                  ].map(action => (
+            <div className="space-y-8">
+              <div className="flex flex-col items-center gap-4">
+                <div className="bg-brand-50/70 border border-brand-100 rounded-full p-1 flex gap-2 mx-auto">
+                  {(['daily', 'weekly', 'monthly'] as const).map(range => (
                     <button
-                      key={action.label}
-                      onClick={() => setActiveParentAction(activeParentAction === action.label ? null : action.label)}
-                      className="bg-brand-50 p-6 rounded-[2rem] text-left hover:shadow-lg transition-all border border-brand-100"
+                      key={range}
+                      onClick={() => setTrendRange(range)}
+                      className={`px-4 py-2 rounded-full text-[10px] font-black uppercase tracking-widest ${
+                        trendRange === range ? 'bg-brand-900 text-white' : 'text-brand-500'
+                      }`}
                     >
-                      <div className="text-2xl mb-3">{action.icon}</div>
-                      <p className="text-sm font-display font-black text-brand-900">{action.label}</p>
-                      <p className="text-[10px] font-bold uppercase tracking-widest text-brand-400">{action.sub}</p>
+                      {range}
                     </button>
                   ))}
                 </div>
+                <button
+                  onClick={() => openPetQuickUpdate(undefined, trendAction.mode)}
+                  className="bg-brand-900 text-white px-6 py-3 rounded-full text-[11px] font-black uppercase tracking-widest shadow-lg hover:bg-brand-500 active:scale-95 transition-all"
+                >
+                  + {trendAction.label}
+                </button>
+              </div>
 
+              <div className="bg-white rounded-[3.5rem] border border-brand-50 p-8 shadow-sm space-y-6">
                 <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-[10px] font-black uppercase tracking-[0.3em] text-brand-400">Insight</p>
+                    <h3 className="text-xl font-display font-black text-brand-900">Wellness Insight</h3>
+                  </div>
+                  <span className="text-[9px] font-black uppercase tracking-widest text-brand-300">{rangeLabel}</span>
+                </div>
+                <div className="flex gap-2">
+                  {(['weight', 'activity', 'diet'] as const).map(metric => (
+                    <button
+                      key={metric}
+                      onClick={() => setInsightMetric(metric)}
+                      className={`px-4 py-2 rounded-full text-[9px] font-black uppercase tracking-widest ${
+                        insightMetric === metric ? 'bg-brand-900 text-white' : 'bg-brand-50 text-brand-500'
+                      }`}
+                    >
+                      {metric}
+                    </button>
+                  ))}
+                </div>
+                <div className="bg-brand-50/60 rounded-[2.5rem] p-6 border border-brand-100 space-y-5">
+                  <div className="flex items-start justify-between gap-4">
+                    <div className="space-y-1">
+                      <p className="text-[9px] font-black uppercase tracking-[0.3em] text-brand-400">Latest</p>
+                      <p className="text-2xl font-display font-black text-brand-900 leading-tight">
+                        {insightMetric === 'weight' ? weightLatestLabel : insightMetric === 'activity' ? activityTrendValue : dietTrendValue}
+                      </p>
+                      {insightMetric === 'weight' && (
+                        <p className="text-[10px] font-bold uppercase tracking-widest text-brand-400">{weightDeltaLabel}</p>
+                      )}
+                    </div>
+                    <div className="text-right space-y-1">
+                      <p className="text-[9px] font-black uppercase tracking-[0.3em] text-brand-400">Comparison</p>
+                      <p className="text-[10px] font-bold uppercase tracking-widest text-brand-500">
+                        {trendComparisonReady ? `vs previous ${rangeLabel.toLowerCase()}` : 'Need 2 logs'}
+                      </p>
+                    </div>
+                  </div>
+                  {insightMetric === 'weight' && (
+                    <div className="space-y-3">
+                      <div className="h-40 w-full min-h-[160px]">
+                        {weightChartData.length >= 2 ? (
+                          <ResponsiveContainer width="100%" height="100%" minHeight={160}>
+                            <LineChart data={weightChartData}>
+                              <XAxis dataKey="date" tick={{ fontSize: 10 }} axisLine={false} tickLine={false} />
+                              <YAxis hide />
+                              <Tooltip
+                                contentStyle={{ borderRadius: 16, borderColor: '#F3C9A7', fontSize: 12 }}
+                                formatter={(value: number) => [`${value}kg`, 'Weight']}
+                              />
+                              <Line
+                                type="monotone"
+                                dataKey="weight"
+                                stroke="#A25A20"
+                                strokeWidth={3}
+                                dot={{ r: 4, stroke: '#A25A20', strokeWidth: 2, fill: '#FDF6F0' }}
+                                activeDot={{ r: 6 }}
+                              />
+                            </LineChart>
+                          </ResponsiveContainer>
+                        ) : (
+                          <div className="h-full flex items-center justify-center text-[10px] font-bold uppercase tracking-widest text-brand-400">
+                            Log two entries to unlock a real trend line.
+                          </div>
+                        )}
+                      </div>
+                      <div className="flex items-center justify-between text-[10px] font-bold uppercase tracking-widest text-brand-400">
+                        <span>{insightData.firstLabel} · {insightData.firstValue}kg</span>
+                        <span>{insightData.lastLabel} · {insightData.lastValue}kg</span>
+                      </div>
+                    </div>
+                  )}
+                  {insightMetric === 'activity' && (
+                    <div className="space-y-3">
+                      <div className="h-40 w-full min-h-[160px]">
+                        <ResponsiveContainer width="100%" height="100%" minHeight={160}>
+                          <BarChart data={activityBarData}>
+                            <XAxis dataKey="level" tick={{ fontSize: 10 }} axisLine={false} tickLine={false} />
+                            <YAxis hide />
+                            <Tooltip
+                              contentStyle={{ borderRadius: 16, borderColor: '#F3C9A7', fontSize: 12 }}
+                              formatter={(value: number) => [`${value} min`, 'Minutes']}
+                            />
+                            <Bar dataKey="minutes" radius={[12, 12, 8, 8]} fill="#D28A5C" />
+                          </BarChart>
+                        </ResponsiveContainer>
+                      </div>
+                      <p className="text-[10px] font-bold uppercase tracking-widest text-brand-400">
+                        Total logged: {activityRangeMinutes} min this {trendRange}
+                      </p>
+                    </div>
+                  )}
+                  {insightMetric === 'diet' && (
+                    <div className="space-y-3">
+                      <div className="flex items-center gap-6">
+                        <div className="h-32 w-32 min-h-[128px] min-w-[128px]">
+                          <ResponsiveContainer width="100%" height="100%" minHeight={128} minWidth={128}>
+                            <PieChart>
+                              <Pie
+                                data={dietPieData}
+                                dataKey="value"
+                                nameKey="name"
+                                innerRadius={36}
+                                outerRadius={58}
+                                paddingAngle={3}
+                              >
+                                {dietPieData.map(entry => (
+                                  <Cell key={entry.name} fill={entry.color} />
+                                ))}
+                              </Pie>
+                              <Tooltip
+                                contentStyle={{ borderRadius: 16, borderColor: '#F3C9A7', fontSize: 12 }}
+                                formatter={(value: number) => [`${value} logs`, 'Diet']}
+                              />
+                            </PieChart>
+                          </ResponsiveContainer>
+                        </div>
+                        <div className="space-y-2 text-[9px] font-bold uppercase tracking-widest text-brand-400">
+                          {dietPieData.map(entry => {
+                            const percent = Math.round((entry.value / insightData.totalDiet) * 100);
+                            return (
+                              <div key={`${entry.name}-label`} className="flex items-center justify-between gap-3">
+                                <span>{entry.name}</span>
+                                <span>{percent}%</span>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                      <p className="text-[10px] font-bold uppercase tracking-widest text-brand-400">Based on logged check-ins</p>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              <div className="bg-white rounded-[3.5rem] border border-brand-50 p-8 shadow-sm space-y-5">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-[10px] font-black uppercase tracking-[0.3em] text-brand-400">Symptom Signals</p>
+                    <h3 className="text-xl font-display font-black text-brand-900">Recent Symptoms</h3>
+                  </div>
                   <button
-                    onClick={() => setShowReminders(true)}
-                    className="text-[10px] font-black uppercase tracking-widest text-brand-500 underline underline-offset-4"
+                    onClick={() => openPetQuickUpdate(undefined, 'symptom')}
+                    className="text-[9px] font-black uppercase tracking-widest text-brand-500"
                   >
-                    View All Reminders
-                  </button>
-                  <button
-                    onClick={() => setShowHelpCenter(true)}
-                    className="text-[10px] font-black uppercase tracking-widest text-brand-500 underline underline-offset-4"
-                  >
-                    Help Center
+                    Log Symptom →
                   </button>
                 </div>
+                <div className="bg-brand-50/60 rounded-[2.5rem] p-6 border border-brand-100 space-y-4">
+                  <div className="flex items-center justify-between">
+                    <p className="text-[10px] font-black uppercase tracking-[0.3em] text-brand-400">Signal</p>
+                    <span className="text-[9px] font-black uppercase tracking-widest text-brand-300">{rangeLabel}</span>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="text-2xl font-display font-black text-brand-900">
+                        {dashboardSummary?.symptomSignal?.value || '—'}
+                      </p>
+                      <p className="text-[10px] font-bold uppercase tracking-widest text-brand-400">
+                        {dashboardSummary?.symptomSignal?.label || 'No recent symptom trend'}
+                      </p>
+                    </div>
+                    <span className="text-[10px] font-bold uppercase tracking-widest text-brand-400">
+                      {dashboardSummary?.symptomSignal?.status || 'unknown'}
+                    </span>
+                  </div>
+                  <p className="text-xs text-brand-800/60 font-medium">
+                    {dashboardSummary?.symptomSignal?.detail || 'Log symptoms to surface patterns and red flags.'}
+                  </p>
+                  <button
+                    onClick={() => setShowSymptomDetails(prev => !prev)}
+                    className="text-[9px] font-black uppercase tracking-widest text-brand-500"
+                  >
+                    {showSymptomDetails ? 'Hide symptom list' : 'View symptom list →'}
+                  </button>
+                  {showSymptomDetails && (
+                    <div className="bg-white/70 border border-brand-100 rounded-2xl p-4 space-y-2">
+                      {symptomDetails.length ? (
+                        symptomDetails.map((item, index) => (
+                          <div key={`symptom-detail-${index}`} className="flex items-center justify-between text-sm text-brand-800 font-medium">
+                            <div>
+                              <p>{item.label}</p>
+                              {item.occurredAt && (
+                                <p className="text-[10px] text-brand-400 font-bold uppercase tracking-widest">
+                                  {new Date(item.occurredAt).toLocaleDateString()}
+                                </p>
+                              )}
+                            </div>
+                            {item.severity ? (
+                              <span className="text-[10px] font-black uppercase tracking-widest text-brand-500">
+                                Severity {item.severity}/5
+                              </span>
+                            ) : null}
+                          </div>
+                        ))
+                      ) : (
+                        <p className="text-sm text-brand-800/60 font-medium">No symptom details logged yet.</p>
+                      )}
+                    </div>
+                  )}
+                </div>
+              </div>
 
-              {activeParentAction && (
-                <div className="bg-brand-50/70 border border-brand-100 p-6 rounded-[2.5rem] space-y-4">
+              <div className="grid gap-4 md:grid-cols-2">
+                <div className="bg-white rounded-[3rem] border border-brand-50 p-6 shadow-sm space-y-4">
                   <div className="flex items-center justify-between">
-                    <h4 className="text-lg font-display font-black text-brand-900">{activeParentAction}</h4>
-                    <button onClick={() => setActiveParentAction(null)} className="text-[10px] font-black uppercase tracking-widest text-brand-500">Minimize</button>
+                    <p className="text-[10px] font-black uppercase tracking-[0.3em] text-brand-400">Check-in Calendar</p>
+                    <span className="text-[9px] font-black uppercase tracking-widest text-brand-300">{checkinCalendar.monthLabel}</span>
                   </div>
-                  <div className="grid md:grid-cols-2 gap-4">
-                    <div className="bg-white p-4 rounded-2xl border border-brand-100">
-                      <p className="text-[10px] font-black uppercase tracking-widest text-brand-400 mb-2">Step 1</p>
-                      <p className="text-sm text-brand-800/70 font-medium">Pick a preferred mode and urgency level.</p>
-                    </div>
-                    <div className="bg-white p-4 rounded-2xl border border-brand-100">
-                      <p className="text-[10px] font-black uppercase tracking-widest text-brand-400 mb-2">Step 2</p>
-                      <p className="text-sm text-brand-800/70 font-medium">Share symptoms or needs for faster triage.</p>
-                    </div>
-                  </div>
-                  <div className="flex flex-wrap gap-3">
-                    {["Call", "Chat", "Video", "Clinic Visit"].map(mode => (
-                      <button key={mode} className="bg-white px-4 py-2 rounded-full text-[10px] font-black uppercase tracking-widest text-brand-700 border border-brand-100">
-                        {mode}
-                      </button>
+                  <div className="grid grid-cols-7 gap-2 text-[9px] font-bold uppercase tracking-widest text-brand-300">
+                    {['S', 'M', 'T', 'W', 'T', 'F', 'S'].map((day, index) => (
+                      <span key={`${day}-${index}`} className="text-center">{day}</span>
                     ))}
+                    {Array.from({ length: checkinCalendar.startOffset }).map((_, idx) => (
+                      <span key={`offset-${idx}`} />
+                    ))}
+                    {checkinCalendar.days.map(day => {
+                      const isCheckin = checkinCalendar.checkinDays.has(day);
+                      const isStreak = checkinCalendar.streakDays.has(day);
+                      return (
+                        <span
+                          key={`day-${day}`}
+                          className={`text-center rounded-full py-1 ${
+                            isCheckin ? 'bg-brand-900 text-white' : isStreak ? 'border border-brand-500 text-brand-700' : 'text-brand-400'
+                          }`}
+                        >
+                          {day}
+                        </span>
+                      );
+                    })}
                   </div>
-                  <textarea
-                    placeholder="Describe the concern or upload a note. (Saved to your care history once cloud storage is connected.)"
-                    className="w-full bg-white p-4 rounded-2xl border border-brand-100 text-xs font-medium h-24 resize-none"
-                  />
+                  <div className="bg-brand-50/70 border border-brand-100 rounded-[2rem] p-4 space-y-3">
+                    <div className="flex items-center justify-between">
+                      <p className="text-[9px] font-black uppercase tracking-[0.3em] text-brand-400">Checklist streak</p>
+                      <span className="text-[9px] font-black uppercase tracking-widest text-brand-500">{checklistProgress}% today</span>
+                    </div>
+                    <div className="flex items-end gap-2 h-16">
+                      {checklistStreakBars.map(day => (
+                        <div key={day.key} className="flex-1 flex flex-col items-center gap-2">
+                          <div className="w-full h-full bg-white/60 border border-brand-100 rounded-full flex items-end overflow-hidden">
+                            <span
+                              className="w-full rounded-full bg-brand-500/80"
+                              style={{ height: `${Math.max(10, Math.round(day.completion))}%` }}
+                            />
+                          </div>
+                          <span className="text-[8px] font-bold uppercase tracking-widest text-brand-400">{day.label}</span>
+                        </div>
+                      ))}
+                    </div>
+                    {!checklistStreakBars.some(day => day.completion > 0) && (
+                      <p className="text-[10px] font-bold uppercase tracking-widest text-brand-400">
+                        No streak data yet — complete a checklist item to start the timeline.
+                      </p>
+                    )}
+                  </div>
+                </div>
+                <div className="bg-white rounded-[3rem] border border-brand-50 p-6 shadow-sm space-y-4">
                   <div className="flex items-center justify-between">
-                    <p className="text-[10px] font-bold uppercase tracking-widest text-brand-400">Next: Connect cloud storage for scheduling</p>
-                    <button className="bg-brand-900 text-white px-6 py-3 rounded-full text-[10px] font-black uppercase tracking-widest">
-                      Queue Request
+                    <div>
+                      <p className="text-[10px] font-black uppercase tracking-[0.3em] text-brand-400">Care Progress</p>
+                      <h3 className="text-xl font-display font-black text-brand-900">Checklist streaks</h3>
+                    </div>
+                    <button
+                      onClick={() => setShowChecklist(prev => !prev)}
+                      className="text-[9px] font-black uppercase tracking-widest text-brand-500"
+                    >
+                      View Checklist →
+                    </button>
+                  </div>
+                  <div className="flex items-center justify-between text-[10px] font-bold uppercase tracking-widest text-brand-400">
+                    <span>Daily: {checklistStreak} days</span>
+                    <span>Weekly: {weeklyCheckinStats.streak} weeks</span>
+                  </div>
+                  <div className="w-full h-4 bg-brand-100 rounded-full overflow-hidden">
+                    <div className="h-full bg-brand-900" style={{ width: `${checklistProgress}%` }} />
+                  </div>
+                  <p className="text-xs text-brand-800/60 font-medium">{checklistCompletedCount}/{checklistIds.length} checks completed today.</p>
+                </div>
+              </div>
+
+              <div className="bg-white rounded-[4.5rem] border border-brand-50 p-8 md:p-12 space-y-6 shadow-sm">
+                <button
+                  onClick={() => setShowChecklist(prev => !prev)}
+                  className="w-full flex items-center justify-between text-left"
+                >
+                  <div>
+                    <h3 className="text-2xl font-display font-black text-brand-900">Daily + Weekly Checklist</h3>
+                    <p className="text-brand-800/40 text-sm font-medium">Track care tasks and keep streaks alive.</p>
+                  </div>
+                  <span className={`text-sm font-black text-brand-500 transition-transform ${showChecklist ? 'rotate-180' : ''}`}>⌄</span>
+                </button>
+                {showChecklist && (
+                  <>
+                    <div className="grid md:grid-cols-2 gap-6">
+                      <div className="space-y-3">
+                        <p className="text-[10px] font-black uppercase tracking-[0.3em] text-brand-400">Daily Checklist</p>
+                        <div className="space-y-2">
+                        {dailyChecklistItems.map(item => (
+                          <div key={item.id} className="flex items-center gap-3 text-sm text-brand-800 font-medium">
+                            <input
+                              type="checkbox"
+                              checked={!!checklistState[item.id]}
+                              onChange={() => handleChecklistToggle(item.id)}
+                              className="accent-brand-500 w-4 h-4"
+                            />
+                            <span className="flex-1">{item.label}</span>
+                            <button
+                              type="button"
+                              onClick={() => openChecklistEditor(item, 'daily')}
+                              className="w-6 h-6 rounded-full border border-brand-200 text-[10px] font-black text-brand-500"
+                              aria-label={`Edit ${item.label}`}
+                            >
+                              i
+                            </button>
+                          </div>
+                        ))}
+                          {!dailyChecklistItems.length && (
+                            <p className="text-sm text-brand-800/60 font-medium">Add a daily checklist item below.</p>
+                          )}
+                        </div>
+                      </div>
+                      <div className="space-y-3">
+                        <p className="text-[10px] font-black uppercase tracking-[0.3em] text-brand-400">Weekly Checklist</p>
+                        <div className="space-y-2">
+                        {weeklyChecklistItems.map(item => (
+                          <div key={item.id} className="flex items-center gap-3 text-sm text-brand-800 font-medium">
+                            <input
+                              type="checkbox"
+                              checked={!!checklistState[item.id]}
+                              onChange={() => handleChecklistToggle(item.id)}
+                              className="accent-brand-500 w-4 h-4"
+                            />
+                            <span className="flex-1">{item.label}</span>
+                            <button
+                              type="button"
+                              onClick={() => openChecklistEditor(item, 'weekly')}
+                              className="w-6 h-6 rounded-full border border-brand-200 text-[10px] font-black text-brand-500"
+                              aria-label={`Edit ${item.label}`}
+                            >
+                              i
+                            </button>
+                          </div>
+                        ))}
+                          {!weeklyChecklistItems.length && (
+                            <p className="text-sm text-brand-800/60 font-medium">Add a weekly checklist item below.</p>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                    <div className="bg-brand-50/60 border border-brand-100 rounded-[2.5rem] p-6 space-y-4">
+                      <p className="text-[10px] font-black uppercase tracking-[0.3em] text-brand-400">Add custom check</p>
+                      <div className="grid md:grid-cols-3 gap-3">
+                        <input
+                          className="bg-white border border-brand-100 rounded-2xl px-4 py-3 text-sm md:col-span-2"
+                          placeholder="e.g., Brush coat, Refill water"
+                          value={customChecklistDraft.label}
+                          onChange={(e) => setCustomChecklistDraft({ ...customChecklistDraft, label: e.target.value })}
+                        />
+                        <select
+                          className="bg-white border border-brand-100 rounded-2xl px-4 py-3 text-sm"
+                          value={customChecklistDraft.frequency}
+                          onChange={(e) => setCustomChecklistDraft({ ...customChecklistDraft, frequency: e.target.value as CustomChecklistItem['frequency'] })}
+                        >
+                          <option value="daily">Daily</option>
+                          <option value="weekly">Weekly</option>
+                        </select>
+                      </div>
+                      <div className="flex flex-wrap items-center gap-4">
+                        <label className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-widest text-brand-400">
+                          <input
+                            type="checkbox"
+                            checked={customChecklistDraft.notifyEnabled}
+                            onChange={(e) => setCustomChecklistDraft({ ...customChecklistDraft, notifyEnabled: e.target.checked })}
+                            className="accent-brand-500"
+                          />
+                          Notify me
+                        </label>
+                        <input
+                          type="time"
+                          className="bg-white border border-brand-100 rounded-2xl px-4 py-2 text-sm"
+                          value={customChecklistDraft.remindTime}
+                          onChange={(e) => setCustomChecklistDraft({ ...customChecklistDraft, remindTime: e.target.value })}
+                        />
+                        <button
+                          onClick={handleAddCustomChecklist}
+                          className="bg-brand-900 text-white px-4 py-2 rounded-full text-[10px] font-black uppercase tracking-widest"
+                        >
+                          Add Check
+                        </button>
+                      </div>
+                    </div>
+                  </>
+                )}
+              </div>
+
+            {profileView === 'parent' ? (
+              <div className="bg-white rounded-[4.5rem] border border-brand-50 p-12 space-y-10 shadow-sm">
+                <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 border-b border-brand-50 pb-8">
+                  <div>
+                    <h3 className="text-3xl font-display font-black text-brand-900">Parent Profile</h3>
+                    <span className="text-[10px] font-black text-brand-300 uppercase tracking-widest">Account Identity</span>
+                  </div>
+                  <div className="flex justify-center w-full">
+                    <div className="bg-brand-50/70 border border-brand-100 rounded-full p-1 flex gap-2 w-full max-w-md">
+                    <button
+                      onClick={() => setProfileView('pet')}
+                      className="flex-1 px-4 py-2 rounded-full text-[10px] font-black uppercase tracking-widest text-brand-500"
+                    >
+                      Pet Info
+                    </button>
+                    <button
+                      onClick={() => setProfileView('parent')}
+                      className="flex-1 px-4 py-2 rounded-full text-[10px] font-black uppercase tracking-widest bg-brand-900 text-white"
+                    >
+                      Parent Info
+                    </button>
+                    </div>
+                  </div>
+                </div>
+                <div className="grid md:grid-cols-2 gap-6">
+                  <div className="space-y-2">
+                    <label className="text-[10px] font-black uppercase tracking-[0.3em] text-brand-400">Email</label>
+                    <input
+                      disabled
+                      className="w-full bg-brand-50/60 border border-brand-100 rounded-2xl px-6 py-4 text-sm text-brand-400"
+                      value={parentDraft.email}
+                      placeholder="email@example.com"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-[10px] font-black uppercase tracking-[0.3em] text-brand-400">Full Name</label>
+                    <input
+                      className="w-full bg-brand-50/60 border border-brand-100 rounded-2xl px-6 py-4 text-sm"
+                      value={parentDraft.fullName}
+                      onChange={(e) => setParentDraft({ ...parentDraft, fullName: e.target.value })}
+                      placeholder="Your name"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-[10px] font-black uppercase tracking-[0.3em] text-brand-400">Phone</label>
+                    <input
+                      className="w-full bg-brand-50/60 border border-brand-100 rounded-2xl px-6 py-4 text-sm"
+                      value={parentDraft.phone}
+                      onChange={(e) => setParentDraft({ ...parentDraft, phone: e.target.value })}
+                      placeholder="+91 98765 43210"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-[10px] font-black uppercase tracking-[0.3em] text-brand-400">Password</label>
+                    <button
+                      onClick={() => {
+                        showToast('Use Forgot Password on the login screen to reset.', 'error');
+                      }}
+                      className="w-full bg-white border border-brand-100 rounded-2xl px-6 py-4 text-[10px] font-black uppercase tracking-widest text-brand-500 hover:border-brand-300"
+                    >
+                      Reset via Login Screen
                     </button>
                   </div>
                 </div>
+                {parentSaveState === 'error' && (
+                  <p className="text-sm text-red-500 font-bold">{parentSaveError}</p>
+                )}
+                <div className="flex items-center justify-between">
+                  <p className="text-[10px] font-bold uppercase tracking-widest text-brand-400">Changes update your account record.</p>
+                  <button
+                    onClick={handleSaveParentProfile}
+                    disabled={parentSaveState === 'saving'}
+                    className="bg-brand-900 text-white px-8 py-4 rounded-[2rem] font-black text-[10px] uppercase tracking-widest shadow-lg hover:bg-brand-500 transition-all disabled:opacity-60"
+                  >
+                    {parentSaveState === 'saving' ? 'Saving...' : 'Save Parent Profile'}
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <>
+                <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+                  <div>
+                    <h3 className="text-3xl font-display font-black text-brand-900">Pet Insights</h3>
+                    <span className="text-[10px] font-black text-brand-300 uppercase tracking-widest">Profile + care signals</span>
+                  </div>
+                  <div className="flex justify-center w-full">
+                    <div className="bg-brand-50/70 border border-brand-100 rounded-full p-1 flex gap-2 w-full max-w-md">
+                    <button
+                      onClick={() => setProfileView('pet')}
+                      className="flex-1 px-4 py-2 rounded-full text-[10px] font-black uppercase tracking-widest bg-brand-900 text-white"
+                    >
+                      Pet Info
+                    </button>
+                    <button
+                      onClick={openParentProfile}
+                      className="flex-1 px-4 py-2 rounded-full text-[10px] font-black uppercase tracking-widest text-brand-500"
+                    >
+                      Parent Info
+                    </button>
+                    </div>
+                  </div>
+                </div>
+                <div className="bg-white rounded-[4.5rem] border border-brand-50 p-12 space-y-8 shadow-sm">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <h3 className="text-2xl font-display font-black text-brand-900">Profile snapshot</h3>
+                      <p className="text-sm text-brand-800/60 font-medium">Key details that drive your insights.</p>
+                    </div>
+                    <button
+                      onClick={openPetProfileEditor}
+                      disabled={!user.pet}
+                      className="bg-brand-900 text-white px-5 py-2 rounded-full text-[10px] font-black uppercase tracking-widest shadow-lg hover:bg-brand-500 transition-all disabled:opacity-40"
+                    >
+                      Edit Profile
+                    </button>
+                  </div>
+                  <div className="grid md:grid-cols-2 gap-4 text-sm text-brand-800/70 font-medium">
+                    <p>Breed: {user.pet?.breed || '—'}</p>
+                    <p>Age: {user.pet?.age || '—'}</p>
+                    <p>Weight: {user.pet?.weight || '—'} kg</p>
+                    <p>Diet: {user.pet?.dietType || '—'}</p>
+                    <p>Activity baseline: {user.pet?.activityBaseline || '—'}</p>
+                    <p>Vaccination: {user.pet?.vaccinationStatus || '—'}</p>
+                    <p>Vet access: {user.pet?.vetAccess || '—'}</p>
+                    <p>Next check-in: {weeklyCheckinStats.nextCheckin.toLocaleDateString()}</p>
+                  </div>
+                </div>
+                <div className="grid md:grid-cols-2 gap-4">
+                  <div className="bg-white rounded-[3rem] border border-brand-50 p-6 shadow-sm space-y-3">
+                    <p className="text-[10px] font-black uppercase tracking-[0.3em] text-brand-400">Medical compliance</p>
+                    <p className="text-2xl font-display font-black text-brand-900">{dashboardSummary?.medicalCompliance?.value || '—'}</p>
+                    <p className="text-[10px] font-bold uppercase tracking-widest text-brand-400">
+                      {dashboardSummary?.medicalCompliance?.note || 'No schedule data yet'}
+                    </p>
+                    <p className="text-xs text-brand-800/60 font-medium">
+                      {dashboardSummary?.medicalCompliance?.detail || 'Log vaccines, deworming, and vet visits to calculate compliance.'}
+                    </p>
+                    <div className="flex items-center gap-3">
+                      <button
+                        onClick={() => openPetQuickUpdate(undefined, 'medical')}
+                        className="text-[9px] font-black uppercase tracking-widest text-brand-500"
+                      >
+                        Add medical event →
+                      </button>
+                      <button
+                        onClick={() => setShowMedicalSchedule(prev => !prev)}
+                        className="text-[9px] font-black uppercase tracking-widest text-brand-500"
+                      >
+                        {showMedicalSchedule ? 'Hide schedule' : 'View schedule →'}
+                      </button>
+                    </div>
+                    {showMedicalSchedule && (
+                      <div className="bg-brand-50/60 border border-brand-100 rounded-2xl p-4 space-y-2">
+                        {medicalEvents.length ? (
+                          medicalEvents.slice(0, 4).map(event => {
+                            const dueDate = event.nextDue ? new Date(event.nextDue) : null;
+                            const isOverdue = dueDate ? dueDate.getTime() < Date.now() : false;
+                            return (
+                              <div key={event.id} className="flex items-center justify-between text-sm text-brand-800 font-medium">
+                                <div>
+                                  <p>{event.eventType}</p>
+                                  {event.nextDue && (
+                                    <p className="text-[10px] text-brand-400 font-bold uppercase tracking-widest">
+                                      Next due {new Date(event.nextDue).toLocaleDateString()}
+                                    </p>
+                                  )}
+                                </div>
+                                {event.nextDue && (
+                                  <span className={`text-[9px] font-black uppercase tracking-widest ${isOverdue ? 'text-red-500' : 'text-brand-500'}`}>
+                                    {isOverdue ? 'Overdue' : 'Scheduled'}
+                                  </span>
+                                )}
+                              </div>
+                            );
+                          })
+                        ) : (
+                          <p className="text-sm text-brand-800/60 font-medium">No medical schedule yet.</p>
+                        )}
+                      </div>
+                    )}
+                    {!dashboardSummary?.medicalCompliance?.value && (
+                      <button
+                        onClick={() => openPetQuickUpdate(undefined, 'medical')}
+                        className="text-[9px] font-black uppercase tracking-widest text-brand-500"
+                      >
+                        Add medical event →
+                      </button>
+                    )}
+                  </div>
+                  <div className="bg-white rounded-[3rem] border border-brand-50 p-6 shadow-sm space-y-3">
+                    <p className="text-[10px] font-black uppercase tracking-[0.3em] text-brand-400">Environment risk</p>
+                    <p className="text-2xl font-display font-black text-brand-900">{dashboardSummary?.environmentRisk?.value || '—'}</p>
+                    <p className="text-[10px] font-bold uppercase tracking-widest text-brand-400">
+                      {dashboardSummary?.environmentRisk?.note || 'No city data yet'}
+                    </p>
+                    <p className="text-xs text-brand-800/60 font-medium">
+                      {dashboardSummary?.environmentRisk?.detail || 'Add your city to get heat, air quality, and safety risk alerts.'}
+                    </p>
+                    {!dashboardSummary?.environmentRisk?.value && (
+                      <button
+                        onClick={openPetProfileEditor}
+                        className="text-[9px] font-black uppercase tracking-widest text-brand-500"
+                      >
+                        Update city →
+                      </button>
+                    )}
+                  </div>
+                </div>
+                <div className="bg-white rounded-[4.5rem] border border-brand-50 p-10 space-y-6 shadow-sm">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <h3 className="text-2xl font-display font-black text-brand-900">Care Access</h3>
+                      <p className="text-sm text-brand-800/60 font-medium">Reach vets, emergency care, or share reports.</p>
+                    </div>
+                    <button
+                      onClick={() => setShowCareRequest(true)}
+                      className="bg-brand-900 text-white px-5 py-2 rounded-full text-[10px] font-black uppercase tracking-widest shadow-lg hover:bg-brand-500 transition-all"
+                    >
+                      New Request
+                    </button>
+                  </div>
+                  <div className="grid md:grid-cols-2 gap-4">
+                    {[
+                      { title: 'Vet consult', desc: 'Talk to a vet for advice.', emoji: '🩺' },
+                      { title: 'Emergency help', desc: 'Urgent triage and support.', emoji: '🚨' },
+                      { title: 'Upload report', desc: 'Share lab reports or scans.', emoji: '📄' },
+                      { title: 'Care callback', desc: 'Request a follow-up call.', emoji: '📞' }
+                    ].map(card => (
+                        <button
+                          key={card.title}
+                          onClick={() => {
+                            setCareRequestDraft({
+                              ...careRequestDraft,
+                              type: card.title,
+                              concern: '',
+                              notes: '',
+                              preferredTime: '',
+                              phone: '',
+                              location: ''
+                            });
+                            setShowCareRequest(true);
+                          }}
+                        className="text-left bg-brand-50/70 border border-brand-100 rounded-[2rem] p-5 space-y-2 hover:border-brand-300 transition-all"
+                      >
+                        <div className="w-10 h-10 rounded-full bg-white/80 border border-brand-100 flex items-center justify-center text-lg">
+                          {card.emoji}
+                        </div>
+                        <p className="text-sm font-display font-black text-brand-900">{card.title}</p>
+                        <p className="text-xs text-brand-800/60 font-medium">{card.desc}</p>
+                      </button>
+                    ))}
+                  </div>
+                  <div className="bg-brand-50/60 border border-brand-100 rounded-[2rem] p-5 space-y-3">
+                    <div className="flex items-center justify-between">
+                      <p className="text-[10px] font-black uppercase tracking-[0.3em] text-brand-400">My requests</p>
+                      <span className="text-[9px] font-black uppercase tracking-widest text-brand-500">{careRequests.length}</span>
+                    </div>
+                    {careRequests.length ? (
+                      <div className="space-y-3">
+                        {careRequests.slice(0, 3).map(request => (
+                          <div key={request.id} className="bg-white/70 border border-brand-100 rounded-2xl p-4 flex items-center justify-between">
+                            <div>
+                              <p className="text-sm font-display font-black text-brand-900">{request.requestType}</p>
+                              <p className="text-[10px] text-brand-400 font-bold uppercase tracking-widest">
+                                {request.status || 'open'}
+                              </p>
+                            </div>
+                            <span className="text-[10px] font-bold uppercase tracking-widest text-brand-400">
+                              {request.createdAt ? new Date(request.createdAt).toLocaleDateString() : '—'}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <p className="text-sm text-brand-800/60 font-medium">No requests yet.</p>
+                    )}
+                  </div>
+                </div>
+
+              </>
+            )}
+            <div className="bg-white rounded-[4.5rem] border border-brand-50 p-12 space-y-6 shadow-sm">
+              <button
+                onClick={() => setShowFeedback(prev => !prev)}
+                className="w-full flex items-center justify-between text-left"
+              >
+                <div>
+                  <h3 className="text-2xl font-display font-black text-brand-900">Founder Feedback</h3>
+                  <p className="text-brand-800/40 text-sm font-medium">Tell us what’s working and what’s missing.</p>
+                </div>
+                <span className={`text-sm font-black text-brand-500 transition-transform ${showFeedback ? 'rotate-180' : ''}`}>⌄</span>
+              </button>
+              {showFeedback && (
+                <>
+                  <div className="grid md:grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <label className="text-[10px] font-black uppercase tracking-[0.3em] text-brand-400">Rating</label>
+                      <select
+                        className="w-full bg-brand-50/60 border border-brand-100 rounded-2xl px-6 py-4 text-sm"
+                        value={feedbackDraft.rating}
+                        onChange={(e) => setFeedbackDraft({ ...feedbackDraft, rating: Number(e.target.value) })}
+                      >
+                        {[10, 9, 8, 7, 6, 5, 4, 3, 2, 1].map(value => (
+                          <option key={value} value={value}>{value}</option>
+                        ))}
+                      </select>
+                    </div>
+                    <div className="space-y-2">
+                      <label className="text-[10px] font-black uppercase tracking-[0.3em] text-brand-400">Sentiment</label>
+                      <select
+                        className="w-full bg-brand-50/60 border border-brand-100 rounded-2xl px-6 py-4 text-sm"
+                        value={feedbackDraft.sentiment}
+                        onChange={(e) => setFeedbackDraft({ ...feedbackDraft, sentiment: e.target.value })}
+                      >
+                        {['Positive', 'Neutral', 'Negative'].map(option => (
+                          <option key={option}>{option}</option>
+                        ))}
+                      </select>
+                    </div>
+                    <div className="space-y-2 md:col-span-2">
+                      <label className="text-[10px] font-black uppercase tracking-[0.3em] text-brand-400">Message</label>
+                      <textarea
+                        className="w-full bg-brand-50/60 border border-brand-100 rounded-2xl px-6 py-4 text-sm h-28 resize-none"
+                        placeholder="What should we improve next?"
+                        value={feedbackDraft.message}
+                        onChange={(e) => setFeedbackDraft({ ...feedbackDraft, message: e.target.value })}
+                      />
+                    </div>
+                    <div className="space-y-2 md:col-span-2">
+                      <label className="text-[10px] font-black uppercase tracking-[0.3em] text-brand-400">Tags</label>
+                      <input
+                        className="w-full bg-brand-50/60 border border-brand-100 rounded-2xl px-6 py-4 text-sm"
+                        placeholder="trends, health score, alerts"
+                        value={feedbackDraft.tags}
+                        onChange={(e) => setFeedbackDraft({ ...feedbackDraft, tags: e.target.value })}
+                      />
+                    </div>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <p className="text-[10px] font-bold uppercase tracking-widest text-brand-400">Helps us refine your dashboard.</p>
+                    <button
+                      onClick={handleSaveFeedback}
+                      className="bg-brand-900 text-white px-8 py-4 rounded-[2rem] font-black text-[10px] uppercase tracking-widest shadow-lg hover:bg-brand-500 transition-all"
+                    >
+                      Send Feedback
+                    </button>
+                  </div>
+                </>
               )}
             </div>
-            <div className="bg-white rounded-[4.5rem] border border-brand-50 p-16 space-y-12 shadow-sm">
-              <div className="flex items-center justify-between border-b border-brand-50 pb-10">
-                <h3 className="text-3xl font-display font-black text-brand-900">Pet Registry</h3>
-                <span className="text-[10px] font-black text-brand-300 uppercase tracking-widest">Active Profile</span>
-              </div>
-              <div className="grid grid-cols-2 gap-x-12 gap-y-10">
-                <div><p className="text-[10px] font-black text-brand-500 uppercase tracking-[0.4em] mb-2">Breed Heritage</p><p className="text-2xl font-bold text-brand-900">{user.pet?.breed}</p></div>
-                <div><p className="text-[10px] font-black text-brand-500 uppercase tracking-[0.4em] mb-2">Weight Node</p><p className="text-2xl font-bold text-brand-900">{user.pet?.weight}kg Class</p></div>
-                <div><p className="text-[10px] font-black text-brand-500 uppercase tracking-[0.4em] mb-2">Diet Strategy</p><p className="text-2xl font-bold text-brand-900">{user.pet?.dietType}</p></div>
-                <div><p className="text-[10px] font-black text-brand-500 uppercase tracking-[0.4em] mb-2">Climate Hub</p><p className="text-2xl font-bold text-brand-900">{user.pet?.city}</p></div>
-              </div>
-            </div>
+
             <div className="flex flex-col gap-6">
               <button onClick={onLogout} className="w-full py-6 text-red-300 font-black uppercase tracking-[0.5em] text-[10px] hover:text-red-500 transition-colors">Logout</button>
             </div>
+          </div>
           </div>
         )}
 
@@ -1224,16 +3438,775 @@ const Dashboard: React.FC<Props> = ({ user, setUser, onUpgrade, onLogout }) => {
           { id: 'home' as const, label: 'Feed', icon: '🐾' },
           { id: 'nutri' as const, label: 'Lens', icon: '🥗' },
           { id: 'play' as const, label: 'Play', icon: '🏃‍♂️' },
-          { id: 'adoption' as const, label: 'Adopt', icon: '🏡' },
           { id: 'studio' as const, label: 'Studio', icon: '✨' },
           { id: 'parent' as const, label: 'Parent', icon: '🦴' }
         ].map(tab => (
-          <button key={tab.id} onClick={() => setActiveTab(tab.id)} className={`flex flex-col items-center gap-2 transition-all duration-700 ${activeTab === tab.id ? 'text-brand-500 -translate-y-5' : 'text-white/30 hover:text-white/60'}`}>
+          <button key={tab.id} onClick={() => setActiveTab(tab.id)} className={`flex flex-col items-center gap-3 transition-all duration-700 ${activeTab === tab.id ? 'text-brand-500 -translate-y-5' : 'text-white hover:text-white/90'}`}>
             <span className={`text-3xl transition-all duration-700 ${activeTab === tab.id ? 'scale-150 drop-shadow-[0_0_20px_rgba(245,146,69,0.8)]' : 'scale-100 opacity-60'}`}>{tab.icon}</span>
-            <span className="text-[8px] font-black uppercase tracking-[0.4em]">{tab.label}</span>
+            <span className="text-[8px] font-black uppercase tracking-[0.4em] text-white/80">{tab.label}</span>
           </button>
         ))}
       </nav>
+
+      {showPetProfileEditor && (
+        <div className="fixed inset-0 z-[130] bg-brand-900/50 backdrop-blur-sm flex items-center justify-center p-6">
+          <div className="bg-white rounded-[3rem] p-8 max-w-5xl w-full space-y-8 shadow-2xl max-h-[85vh] overflow-y-auto">
+            <div className="flex items-center justify-between">
+              <div>
+                <h3 className="text-2xl font-display font-black text-brand-900">Edit Pet Profile</h3>
+                <p className="text-[10px] font-bold uppercase tracking-[0.3em] text-brand-400">Keep your pet registry accurate</p>
+              </div>
+              <button onClick={() => setShowPetProfileEditor(false)} className="text-[10px] font-black uppercase tracking-widest text-brand-500">Close</button>
+            </div>
+
+            <div className="grid md:grid-cols-2 gap-8">
+              <div className="space-y-4">
+                <h4 className="text-sm font-black uppercase tracking-[0.3em] text-brand-500">Identity</h4>
+                <div className="space-y-2">
+                  <label className="text-[10px] font-black uppercase tracking-[0.3em] text-brand-400">Pet Name</label>
+                  <input
+                    className="w-full bg-brand-50/60 border border-brand-100 rounded-2xl px-6 py-4 text-sm"
+                    placeholder="Pet Name"
+                    value={petDraft.name}
+                    onChange={(e) => setPetDraft({ ...petDraft, name: e.target.value })}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <label className="text-[10px] font-black uppercase tracking-[0.3em] text-brand-400">Breed</label>
+                  <select
+                    className="w-full bg-brand-50/60 border border-brand-100 rounded-2xl px-6 py-4 text-sm"
+                    value={petDraft.breed}
+                    onChange={(e) => setPetDraft({ ...petDraft, breed: e.target.value })}
+                  >
+                    {BREED_OPTIONS.map(option => (
+                      <option key={option}>{option}</option>
+                    ))}
+                  </select>
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-2">
+                    <label className="text-[10px] font-black uppercase tracking-[0.3em] text-brand-400">Age</label>
+                    <select
+                      className="w-full bg-brand-50/60 border border-brand-100 rounded-2xl px-6 py-4 text-sm"
+                      value={petDraft.age}
+                      onChange={(e) => setPetDraft({ ...petDraft, age: e.target.value })}
+                    >
+                      {['Puppy', 'Adult', 'Senior'].map(option => (
+                        <option key={option}>{option}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-[10px] font-black uppercase tracking-[0.3em] text-brand-400">Gender</label>
+                    <select
+                      className="w-full bg-brand-50/60 border border-brand-100 rounded-2xl px-6 py-4 text-sm"
+                      value={petDraft.gender}
+                      onChange={(e) => setPetDraft({ ...petDraft, gender: e.target.value as PetData['gender'] })}
+                    >
+                      {GENDER_OPTIONS.map(option => (
+                        <option key={option}>{option}</option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+                <div className="space-y-2">
+                  <label className="text-[10px] font-black uppercase tracking-[0.3em] text-brand-400">City</label>
+                  <input
+                    className="w-full bg-brand-50/60 border border-brand-100 rounded-2xl px-6 py-4 text-sm"
+                    placeholder="City"
+                    value={petDraft.city}
+                    onChange={(e) => setPetDraft({ ...petDraft, city: e.target.value })}
+                  />
+                </div>
+              </div>
+
+              <div className="space-y-4">
+                <h4 className="text-sm font-black uppercase tracking-[0.3em] text-brand-500">Vitals</h4>
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-2">
+                    <label className="text-[10px] font-black uppercase tracking-[0.3em] text-brand-400">Age (Months)</label>
+                    <input
+                      className="w-full bg-brand-50/60 border border-brand-100 rounded-2xl px-6 py-4 text-sm"
+                      placeholder="Age (months)"
+                      value={petDraft.ageMonths}
+                      onChange={(e) => setPetDraft({ ...petDraft, ageMonths: e.target.value })}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-[10px] font-black uppercase tracking-[0.3em] text-brand-400">Weight (kg)</label>
+                    <input
+                      className="w-full bg-brand-50/60 border border-brand-100 rounded-2xl px-6 py-4 text-sm"
+                      placeholder="Weight (kg)"
+                      value={petDraft.weight}
+                      onChange={(e) => setPetDraft({ ...petDraft, weight: e.target.value })}
+                    />
+                  </div>
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-2">
+                    <label className="text-[10px] font-black uppercase tracking-[0.3em] text-brand-400">Spay/Neuter</label>
+                    <select
+                      className="w-full bg-brand-50/60 border border-brand-100 rounded-2xl px-6 py-4 text-sm"
+                      value={petDraft.spayNeuterStatus}
+                      onChange={(e) => setPetDraft({ ...petDraft, spayNeuterStatus: e.target.value as PetData['spayNeuterStatus'] })}
+                    >
+                      {SPAY_STATUSES.map(option => (
+                        <option key={option}>{option}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-[10px] font-black uppercase tracking-[0.3em] text-brand-400">Vaccination Status</label>
+                    <select
+                      className="w-full bg-brand-50/60 border border-brand-100 rounded-2xl px-6 py-4 text-sm"
+                      value={petDraft.vaccinationStatus}
+                      onChange={(e) => setPetDraft({ ...petDraft, vaccinationStatus: e.target.value as PetData['vaccinationStatus'] })}
+                    >
+                      {VACCINATION_STATUSES.map(option => (
+                        <option key={option}>{option}</option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-2">
+                    <label className="text-[10px] font-black uppercase tracking-[0.3em] text-brand-400">Last Vaccine Date</label>
+                    <input
+                      type="date"
+                      className="w-full bg-brand-50/60 border border-brand-100 rounded-2xl px-6 py-4 text-sm"
+                      value={petDraft.lastVaccineDate}
+                      onChange={(e) => setPetDraft({ ...petDraft, lastVaccineDate: e.target.value })}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-[10px] font-black uppercase tracking-[0.3em] text-brand-400">Vet Access</label>
+                    <select
+                      className="w-full bg-brand-50/60 border border-brand-100 rounded-2xl px-6 py-4 text-sm"
+                      value={petDraft.vetAccess}
+                      onChange={(e) => setPetDraft({ ...petDraft, vetAccess: e.target.value as PetData['vetAccess'] })}
+                    >
+                      {VET_ACCESS.map(option => (
+                        <option key={option}>{option}</option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+              </div>
+
+              <div className="space-y-4">
+                <h4 className="text-sm font-black uppercase tracking-[0.3em] text-brand-500">Lifestyle</h4>
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-2">
+                    <label className="text-[10px] font-black uppercase tracking-[0.3em] text-brand-400">Activity Level</label>
+                    <select
+                      className="w-full bg-brand-50/60 border border-brand-100 rounded-2xl px-6 py-4 text-sm"
+                      value={petDraft.activityLevel}
+                      onChange={(e) => setPetDraft({ ...petDraft, activityLevel: e.target.value as PetData['activityLevel'] })}
+                    >
+                      {ACTIVITY_LEVELS.map(option => (
+                        <option key={option}>{option}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-[10px] font-black uppercase tracking-[0.3em] text-brand-400">Activity Baseline</label>
+                    <select
+                      className="w-full bg-brand-50/60 border border-brand-100 rounded-2xl px-6 py-4 text-sm"
+                      value={petDraft.activityBaseline}
+                      onChange={(e) => setPetDraft({ ...petDraft, activityBaseline: e.target.value as PetData['activityBaseline'] })}
+                    >
+                      {ACTIVITY_BASELINES.map(option => (
+                        <option key={option}>{option}</option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+                <div className="grid grid-cols-3 gap-3">
+                  <div className="space-y-2">
+                    <label className="text-[10px] font-black uppercase tracking-[0.3em] text-brand-400">Housing</label>
+                    <select
+                      className="w-full bg-brand-50/60 border border-brand-100 rounded-2xl px-4 py-4 text-sm"
+                      value={petDraft.housingType}
+                      onChange={(e) => setPetDraft({ ...petDraft, housingType: e.target.value as PetData['housingType'] })}
+                    >
+                      {HOUSING_TYPES.map(option => (
+                        <option key={option}>{option}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-[10px] font-black uppercase tracking-[0.3em] text-brand-400">Walk Surface</label>
+                    <select
+                      className="w-full bg-brand-50/60 border border-brand-100 rounded-2xl px-4 py-4 text-sm"
+                      value={petDraft.walkSurface}
+                      onChange={(e) => setPetDraft({ ...petDraft, walkSurface: e.target.value as PetData['walkSurface'] })}
+                    >
+                      {WALK_SURFACES.map(option => (
+                        <option key={option}>{option}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-[10px] font-black uppercase tracking-[0.3em] text-brand-400">Park Access</label>
+                    <select
+                      className="w-full bg-brand-50/60 border border-brand-100 rounded-2xl px-4 py-4 text-sm"
+                      value={petDraft.parkAccess}
+                      onChange={(e) => setPetDraft({ ...petDraft, parkAccess: e.target.value as PetData['parkAccess'] })}
+                    >
+                      {PARK_ACCESS.map(option => (
+                        <option key={option}>{option}</option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+              </div>
+
+              <div className="space-y-4">
+                <h4 className="text-sm font-black uppercase tracking-[0.3em] text-brand-500">Nutrition</h4>
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-2">
+                    <label className="text-[10px] font-black uppercase tracking-[0.3em] text-brand-400">Diet Type</label>
+                    <select
+                      className="w-full bg-brand-50/60 border border-brand-100 rounded-2xl px-6 py-4 text-sm"
+                      value={petDraft.dietType}
+                      onChange={(e) => setPetDraft({ ...petDraft, dietType: e.target.value as PetData['dietType'] })}
+                    >
+                      {DIET_TYPES.map(option => (
+                        <option key={option}>{option}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-[10px] font-black uppercase tracking-[0.3em] text-brand-400">Feeding Schedule</label>
+                    <select
+                      className="w-full bg-brand-50/60 border border-brand-100 rounded-2xl px-6 py-4 text-sm"
+                      value={petDraft.feedingSchedule}
+                      onChange={(e) => setPetDraft({ ...petDraft, feedingSchedule: e.target.value as PetData['feedingSchedule'] })}
+                    >
+                      {FEEDING_SCHEDULES.map(option => (
+                        <option key={option}>{option}</option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+                <div className="space-y-2">
+                  <label className="text-[10px] font-black uppercase tracking-[0.3em] text-brand-400">Food Brand</label>
+                  <input
+                    className="w-full bg-brand-50/60 border border-brand-100 rounded-2xl px-6 py-4 text-sm"
+                    placeholder="Primary Food Brand"
+                    value={petDraft.foodBrand}
+                    onChange={(e) => setPetDraft({ ...petDraft, foodBrand: e.target.value })}
+                  />
+                </div>
+              </div>
+            </div>
+
+            <div className="grid md:grid-cols-3 gap-4">
+              <div className="space-y-2">
+                <label className="text-[10px] font-black uppercase tracking-[0.3em] text-brand-400">Allergies</label>
+                <input
+                  className="w-full bg-brand-50/60 border border-brand-100 rounded-2xl px-6 py-4 text-sm"
+                  placeholder="Allergies (comma separated)"
+                  value={petDraft.allergies}
+                  onChange={(e) => setPetDraft({ ...petDraft, allergies: e.target.value })}
+                />
+              </div>
+              <div className="space-y-2">
+                <label className="text-[10px] font-black uppercase tracking-[0.3em] text-brand-400">Interests</label>
+                <input
+                  className="w-full bg-brand-50/60 border border-brand-100 rounded-2xl px-6 py-4 text-sm"
+                  placeholder="Interests (comma separated)"
+                  value={petDraft.interests}
+                  onChange={(e) => setPetDraft({ ...petDraft, interests: e.target.value })}
+                />
+              </div>
+              <div className="space-y-2">
+                <label className="text-[10px] font-black uppercase tracking-[0.3em] text-brand-400">Goals</label>
+                <input
+                  className="w-full bg-brand-50/60 border border-brand-100 rounded-2xl px-6 py-4 text-sm"
+                  placeholder="Goals (comma separated)"
+                  value={petDraft.goals}
+                  onChange={(e) => setPetDraft({ ...petDraft, goals: e.target.value })}
+                />
+              </div>
+            </div>
+
+            {petSaveState === 'error' && (
+              <p className="text-sm text-red-500 font-bold">{petSaveError || 'Failed to update profile.'}</p>
+            )}
+
+            <div className="flex items-center justify-between">
+              <p className="text-[10px] font-bold uppercase tracking-widest text-brand-400">Saved changes update your AI intelligence feed.</p>
+              <button
+                onClick={handleSavePetProfile}
+                disabled={petSaveState === 'saving'}
+                className="bg-brand-900 text-white px-8 py-4 rounded-[2rem] font-black text-[10px] uppercase tracking-widest shadow-lg hover:bg-brand-500 transition-all disabled:opacity-60"
+              >
+                {petSaveState === 'saving' ? 'Saving...' : 'Save Changes'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showPetQuickUpdate && (
+        <div className="fixed inset-0 z-[130] bg-brand-900/50 backdrop-blur-sm flex items-center justify-center p-6">
+          <div className="bg-white rounded-[3rem] p-8 max-w-2xl w-full space-y-8 shadow-2xl">
+            <div className="flex items-center justify-between">
+              <div>
+                <h3 className="text-2xl font-display font-black text-brand-900">Quick Pet Update</h3>
+                <p className="text-[10px] font-bold uppercase tracking-[0.3em] text-brand-400">{activeQuickUpdateMode.label}</p>
+              </div>
+              <button onClick={() => setShowPetQuickUpdate(false)} className="text-[10px] font-black uppercase tracking-widest text-brand-500">Close</button>
+            </div>
+
+            <div className="space-y-2">
+              <label className="text-[10px] font-black uppercase tracking-[0.3em] text-brand-400">Log Type</label>
+              <select
+                className="w-full bg-brand-50/60 border border-brand-100 rounded-2xl px-6 py-4 text-sm"
+                value={quickUpdateMode}
+                onChange={(e) => setQuickUpdateMode(e.target.value as QuickUpdateMode)}
+              >
+                {QUICK_UPDATE_MODES.map(mode => (
+                  <option key={mode.value} value={mode.value}>{mode.label}</option>
+                ))}
+              </select>
+              <p className="text-[10px] font-bold uppercase tracking-[0.3em] text-brand-300">{activeQuickUpdateMode.helper}</p>
+            </div>
+
+            {quickUpdateMode === 'weekly' && (
+              <>
+                <div className="grid md:grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <label className="text-[10px] font-black uppercase tracking-[0.3em] text-brand-400">Update Date</label>
+                    <input
+                      type="date"
+                      className="w-full bg-brand-50/60 border border-brand-100 rounded-2xl px-6 py-4 text-sm"
+                      value={quickUpdateDraft.date}
+                      onChange={(e) => setQuickUpdateDraft({ ...quickUpdateDraft, date: e.target.value })}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-[10px] font-black uppercase tracking-[0.3em] text-brand-400">Weight (kg)</label>
+                    <input
+                      className="w-full bg-brand-50/60 border border-brand-100 rounded-2xl px-6 py-4 text-sm"
+                      placeholder="Weight (kg)"
+                      value={quickUpdateDraft.weight}
+                      onChange={(e) => setQuickUpdateDraft({ ...quickUpdateDraft, weight: e.target.value })}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-[10px] font-black uppercase tracking-[0.3em] text-brand-400">Activity Level</label>
+                    <select
+                      className="w-full bg-brand-50/60 border border-brand-100 rounded-2xl px-6 py-4 text-sm"
+                      value={quickUpdateDraft.activityLevel}
+                      onChange={(e) => setQuickUpdateDraft({ ...quickUpdateDraft, activityLevel: e.target.value })}
+                    >
+                      {ACTIVITY_LEVELS.map(option => (
+                        <option key={option}>{option}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-[10px] font-black uppercase tracking-[0.3em] text-brand-400">Diet Type</label>
+                    <select
+                      className="w-full bg-brand-50/60 border border-brand-100 rounded-2xl px-6 py-4 text-sm"
+                      value={quickUpdateDraft.dietType}
+                      onChange={(e) => setQuickUpdateDraft({ ...quickUpdateDraft, dietType: e.target.value })}
+                    >
+                      {DIET_TYPES.map(option => (
+                        <option key={option}>{option}</option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+                <div className="space-y-2">
+                  <label className="text-[10px] font-black uppercase tracking-[0.3em] text-brand-400">Notes (optional)</label>
+                  <textarea
+                    className="w-full bg-brand-50/60 border border-brand-100 rounded-2xl px-6 py-4 text-sm h-28 resize-none"
+                    placeholder="Appetite, energy, or anything unusual this week."
+                    value={quickUpdateDraft.notes}
+                    onChange={(e) => setQuickUpdateDraft({ ...quickUpdateDraft, notes: e.target.value })}
+                  />
+                </div>
+              </>
+            )}
+
+            {quickUpdateMode === 'diet' && (
+              <div className="grid md:grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <label className="text-[10px] font-black uppercase tracking-[0.3em] text-brand-400">Log Date</label>
+                  <input
+                    type="date"
+                    className="w-full bg-brand-50/60 border border-brand-100 rounded-2xl px-6 py-4 text-sm"
+                    value={dietLogDraft.logDate}
+                    onChange={(e) => setDietLogDraft({ ...dietLogDraft, logDate: e.target.value })}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <label className="text-[10px] font-black uppercase tracking-[0.3em] text-brand-400">Meal Type</label>
+                  <select
+                    className="w-full bg-brand-50/60 border border-brand-100 rounded-2xl px-6 py-4 text-sm"
+                    value={dietLogDraft.mealType}
+                    onChange={(e) => setDietLogDraft({ ...dietLogDraft, mealType: e.target.value })}
+                  >
+                    {['Breakfast', 'Lunch', 'Dinner', 'Snack'].map(option => (
+                      <option key={option}>{option}</option>
+                    ))}
+                  </select>
+                </div>
+                <div className="space-y-2">
+                  <label className="text-[10px] font-black uppercase tracking-[0.3em] text-brand-400">Diet Type</label>
+                  <select
+                    className="w-full bg-brand-50/60 border border-brand-100 rounded-2xl px-6 py-4 text-sm"
+                    value={dietLogDraft.dietType}
+                    onChange={(e) => setDietLogDraft({ ...dietLogDraft, dietType: e.target.value })}
+                  >
+                    {DIET_TYPES.map(option => (
+                      <option key={option}>{option}</option>
+                    ))}
+                  </select>
+                </div>
+                <div className="space-y-2">
+                  <label className="text-[10px] font-black uppercase tracking-[0.3em] text-brand-400">Food Served</label>
+                  <input
+                    className="w-full bg-brand-50/60 border border-brand-100 rounded-2xl px-6 py-4 text-sm"
+                    placeholder="Food served"
+                    value={dietLogDraft.actualFood}
+                    onChange={(e) => setDietLogDraft({ ...dietLogDraft, actualFood: e.target.value })}
+                  />
+                </div>
+              </div>
+            )}
+
+            {quickUpdateMode === 'medical' && (
+              <div className="grid md:grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <label className="text-[10px] font-black uppercase tracking-[0.3em] text-brand-400">Event Type</label>
+                  <select
+                    className="w-full bg-brand-50/60 border border-brand-100 rounded-2xl px-6 py-4 text-sm"
+                    value={medicalEventDraft.eventType}
+                    onChange={(e) => setMedicalEventDraft({ ...medicalEventDraft, eventType: e.target.value })}
+                  >
+                    {['Vaccine', 'Deworming', 'Vet Visit', 'Grooming', 'Other'].map(option => (
+                      <option key={option}>{option}</option>
+                    ))}
+                  </select>
+                </div>
+                <div className="space-y-2">
+                  <label className="text-[10px] font-black uppercase tracking-[0.3em] text-brand-400">Date Administered</label>
+                  <input
+                    type="date"
+                    className="w-full bg-brand-50/60 border border-brand-100 rounded-2xl px-6 py-4 text-sm"
+                    value={medicalEventDraft.dateAdministered}
+                    onChange={(e) => setMedicalEventDraft({ ...medicalEventDraft, dateAdministered: e.target.value })}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <label className="text-[10px] font-black uppercase tracking-[0.3em] text-brand-400">Next Due</label>
+                  <input
+                    type="date"
+                    className="w-full bg-brand-50/60 border border-brand-100 rounded-2xl px-6 py-4 text-sm"
+                    value={medicalEventDraft.nextDue}
+                    onChange={(e) => setMedicalEventDraft({ ...medicalEventDraft, nextDue: e.target.value })}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <label className="text-[10px] font-black uppercase tracking-[0.3em] text-brand-400">Verified By</label>
+                  <input
+                    className="w-full bg-brand-50/60 border border-brand-100 rounded-2xl px-6 py-4 text-sm"
+                    placeholder="Vet or clinic"
+                    value={medicalEventDraft.verifiedBy}
+                    onChange={(e) => setMedicalEventDraft({ ...medicalEventDraft, verifiedBy: e.target.value })}
+                  />
+                </div>
+                <div className="space-y-2 md:col-span-2">
+                  <label className="text-[10px] font-black uppercase tracking-[0.3em] text-brand-400">Notes</label>
+                  <textarea
+                    className="w-full bg-brand-50/60 border border-brand-100 rounded-2xl px-6 py-4 text-sm h-24 resize-none"
+                    placeholder="Add any notes"
+                    value={medicalEventDraft.notes}
+                    onChange={(e) => setMedicalEventDraft({ ...medicalEventDraft, notes: e.target.value })}
+                  />
+                </div>
+              </div>
+            )}
+
+            {quickUpdateMode === 'symptom' && (
+              <div className="grid md:grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <label className="text-[10px] font-black uppercase tracking-[0.3em] text-brand-400">Occurred At</label>
+                  <input
+                    type="datetime-local"
+                    className="w-full bg-brand-50/60 border border-brand-100 rounded-2xl px-6 py-4 text-sm"
+                    value={symptomLogDraft.occurredAt}
+                    onChange={(e) => setSymptomLogDraft({ ...symptomLogDraft, occurredAt: e.target.value })}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <label className="text-[10px] font-black uppercase tracking-[0.3em] text-brand-400">Symptom</label>
+                  <input
+                    className="w-full bg-brand-50/60 border border-brand-100 rounded-2xl px-6 py-4 text-sm"
+                    placeholder="Symptom type"
+                    value={symptomLogDraft.symptomType}
+                    onChange={(e) => setSymptomLogDraft({ ...symptomLogDraft, symptomType: e.target.value })}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <label className="text-[10px] font-black uppercase tracking-[0.3em] text-brand-400">Severity</label>
+                  <select
+                    className="w-full bg-brand-50/60 border border-brand-100 rounded-2xl px-6 py-4 text-sm"
+                    value={symptomLogDraft.severity}
+                    onChange={(e) => setSymptomLogDraft({ ...symptomLogDraft, severity: Number(e.target.value) })}
+                  >
+                    {[1, 2, 3, 4, 5].map(option => (
+                      <option key={option} value={option}>Severity {option}</option>
+                    ))}
+                  </select>
+                </div>
+                <div className="space-y-2 md:col-span-2">
+                  <label className="text-[10px] font-black uppercase tracking-[0.3em] text-brand-400">Notes</label>
+                  <textarea
+                    className="w-full bg-brand-50/60 border border-brand-100 rounded-2xl px-6 py-4 text-sm h-24 resize-none"
+                    placeholder="What you observed"
+                    value={symptomLogDraft.notes}
+                    onChange={(e) => setSymptomLogDraft({ ...symptomLogDraft, notes: e.target.value })}
+                  />
+                </div>
+              </div>
+            )}
+
+            {quickUpdateMode === 'weekly' && petSaveState === 'error' && (
+              <p className="text-sm text-red-500 font-bold">{petSaveError || 'Failed to update pet.'}</p>
+            )}
+
+            <div className="flex items-center justify-between">
+              <p className="text-[10px] font-bold uppercase tracking-widest text-brand-400">Updates refresh your daily brief logic.</p>
+              <button
+                onClick={handleQuickUpdateSubmit}
+                disabled={quickUpdateMode === 'weekly' && petSaveState === 'saving'}
+                className="bg-brand-900 text-white px-8 py-4 rounded-[2rem] font-black text-[10px] uppercase tracking-widest shadow-lg hover:bg-brand-500 transition-all disabled:opacity-60"
+              >
+                {quickUpdateMode === 'weekly' && petSaveState === 'saving' ? 'Saving...' : `Save ${activeQuickUpdateMode.label}`}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {checklistEditor && (
+        <div className="fixed inset-0 z-[135] bg-brand-900/50 backdrop-blur-sm flex items-center justify-center p-6">
+          <div className="bg-white rounded-[3rem] p-8 max-w-lg w-full space-y-6 shadow-2xl">
+            <div className="flex items-center justify-between">
+              <div>
+                <h3 className="text-2xl font-display font-black text-brand-900">Edit Checklist Item</h3>
+                <p className="text-[10px] font-bold uppercase tracking-[0.3em] text-brand-400">{checklistEditor.frequency} item</p>
+              </div>
+              <button onClick={() => setChecklistEditor(null)} className="text-[10px] font-black uppercase tracking-widest text-brand-500">Close</button>
+            </div>
+            <div className="space-y-3">
+              <label className="text-[10px] font-black uppercase tracking-[0.3em] text-brand-400">Label</label>
+              <input
+                className="w-full bg-brand-50/60 border border-brand-100 rounded-2xl px-6 py-4 text-sm"
+                value={checklistEditor.label}
+                onChange={(e) => setChecklistEditor({ ...checklistEditor, label: e.target.value })}
+              />
+            </div>
+            <div className="flex flex-wrap items-center gap-4">
+              <label className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-widest text-brand-400">
+                <input
+                  type="checkbox"
+                  checked={checklistEditor.notifyEnabled}
+                  onChange={(e) => setChecklistEditor({ ...checklistEditor, notifyEnabled: e.target.checked })}
+                  className="accent-brand-500"
+                />
+                Notify me
+              </label>
+              <input
+                type="time"
+                className="bg-white border border-brand-100 rounded-2xl px-4 py-2 text-sm"
+                value={checklistEditor.remindTime}
+                onChange={(e) => setChecklistEditor({ ...checklistEditor, remindTime: e.target.value })}
+              />
+            </div>
+            <div className="grid gap-3">
+              <button
+                onClick={handleChecklistEditorSave}
+                className="w-full bg-brand-900 text-white py-4 rounded-[2rem] font-black text-[10px] uppercase tracking-widest shadow-lg hover:bg-brand-500 transition-all"
+              >
+                Save Changes
+              </button>
+              <button
+                onClick={handleChecklistEditorRemove}
+                className="w-full bg-white border border-brand-100 text-brand-900 py-3 rounded-[2rem] font-black text-[10px] uppercase tracking-widest"
+              >
+                Remove Item
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showCareRequest && (
+        <div className="fixed inset-0 z-[135] bg-brand-900/50 backdrop-blur-sm flex items-center justify-center p-6">
+          <div className="bg-white rounded-[3rem] p-8 max-w-lg w-full space-y-6 shadow-2xl">
+            <div className="flex items-center justify-between">
+              <div>
+                <h3 className="text-2xl font-display font-black text-brand-900">Care Request</h3>
+                <p className="text-[10px] font-bold uppercase tracking-[0.3em] text-brand-400">{careRequestDraft.type}</p>
+              </div>
+              <button onClick={() => setShowCareRequest(false)} className="text-[10px] font-black uppercase tracking-widest text-brand-500">Close</button>
+            </div>
+            <div className="space-y-3">
+              <label className="text-[10px] font-black uppercase tracking-[0.3em] text-brand-400">Request Type</label>
+              <select
+                className="w-full bg-brand-50/60 border border-brand-100 rounded-2xl px-6 py-4 text-sm"
+                value={careRequestDraft.type}
+                onChange={(e) => setCareRequestDraft({ ...careRequestDraft, type: e.target.value })}
+              >
+                {['Vet consult', 'Emergency help', 'Upload report', 'Care callback'].map(option => (
+                  <option key={option}>{option}</option>
+                ))}
+              </select>
+            </div>
+            {careRequestDraft.type === 'Vet consult' && (
+              <>
+                <div className="space-y-3">
+                  <label className="text-[10px] font-black uppercase tracking-[0.3em] text-brand-400">Concern</label>
+                  <input
+                    className="w-full bg-brand-50/60 border border-brand-100 rounded-2xl px-6 py-4 text-sm"
+                    placeholder="Short summary (e.g., vomiting, limping)"
+                    value={careRequestDraft.concern}
+                    onChange={(e) => setCareRequestDraft({ ...careRequestDraft, concern: e.target.value })}
+                  />
+                </div>
+                <div className="space-y-3">
+                  <label className="text-[10px] font-black uppercase tracking-[0.3em] text-brand-400">Preferred time</label>
+                  <input
+                    type="text"
+                    className="w-full bg-brand-50/60 border border-brand-100 rounded-2xl px-6 py-4 text-sm"
+                    placeholder="e.g., Today 6pm–8pm"
+                    value={careRequestDraft.preferredTime}
+                    onChange={(e) => setCareRequestDraft({ ...careRequestDraft, preferredTime: e.target.value })}
+                  />
+                </div>
+                <div className="space-y-3">
+                  <label className="text-[10px] font-black uppercase tracking-[0.3em] text-brand-400">Notes</label>
+                  <textarea
+                    className="w-full bg-brand-50/60 border border-brand-100 rounded-2xl px-6 py-4 text-sm h-28 resize-none"
+                    placeholder="Add details, duration, appetite, or meds"
+                    value={careRequestDraft.notes}
+                    onChange={(e) => setCareRequestDraft({ ...careRequestDraft, notes: e.target.value })}
+                  />
+                </div>
+              </>
+            )}
+            {careRequestDraft.type === 'Emergency help' && (
+              <>
+                <div className="space-y-3">
+                  <label className="text-[10px] font-black uppercase tracking-[0.3em] text-brand-400">Urgency</label>
+                  <select
+                    className="w-full bg-brand-50/60 border border-brand-100 rounded-2xl px-6 py-4 text-sm"
+                    value={careRequestDraft.urgency}
+                    onChange={(e) => setCareRequestDraft({ ...careRequestDraft, urgency: e.target.value })}
+                  >
+                    {['High', 'Medium', 'Low'].map(option => (
+                      <option key={option}>{option}</option>
+                    ))}
+                  </select>
+                </div>
+                <div className="space-y-3">
+                  <label className="text-[10px] font-black uppercase tracking-[0.3em] text-brand-400">Location</label>
+                  <input
+                    className="w-full bg-brand-50/60 border border-brand-100 rounded-2xl px-6 py-4 text-sm"
+                    placeholder="Area / address"
+                    value={careRequestDraft.location}
+                    onChange={(e) => setCareRequestDraft({ ...careRequestDraft, location: e.target.value })}
+                  />
+                </div>
+                <div className="space-y-3">
+                  <label className="text-[10px] font-black uppercase tracking-[0.3em] text-brand-400">Notes</label>
+                  <textarea
+                    className="w-full bg-brand-50/60 border border-brand-100 rounded-2xl px-6 py-4 text-sm h-28 resize-none"
+                    placeholder="What happened, symptoms, breathing, bleeding"
+                    value={careRequestDraft.notes}
+                    onChange={(e) => setCareRequestDraft({ ...careRequestDraft, notes: e.target.value })}
+                  />
+                </div>
+              </>
+            )}
+            {careRequestDraft.type === 'Upload report' && (
+              <>
+                <div className="space-y-3">
+                  <label className="text-[10px] font-black uppercase tracking-[0.3em] text-brand-400">Report type</label>
+                  <select
+                    className="w-full bg-brand-50/60 border border-brand-100 rounded-2xl px-6 py-4 text-sm"
+                    value={careRequestDraft.reportType}
+                    onChange={(e) => setCareRequestDraft({ ...careRequestDraft, reportType: e.target.value })}
+                  >
+                    {['Lab report', 'Prescription', 'Scan', 'Other'].map(option => (
+                      <option key={option}>{option}</option>
+                    ))}
+                  </select>
+                </div>
+                <div className="space-y-3">
+                  <label className="text-[10px] font-black uppercase tracking-[0.3em] text-brand-400">Upload report</label>
+                  <input type="file" className="w-full text-sm text-brand-800/70" />
+                </div>
+                <div className="space-y-3">
+                  <label className="text-[10px] font-black uppercase tracking-[0.3em] text-brand-400">Notes</label>
+                  <textarea
+                    className="w-full bg-brand-50/60 border border-brand-100 rounded-2xl px-6 py-4 text-sm h-28 resize-none"
+                    placeholder="Add notes for the vet"
+                    value={careRequestDraft.notes}
+                    onChange={(e) => setCareRequestDraft({ ...careRequestDraft, notes: e.target.value })}
+                  />
+                </div>
+              </>
+            )}
+            {careRequestDraft.type === 'Care callback' && (
+              <>
+                <div className="space-y-3">
+                  <label className="text-[10px] font-black uppercase tracking-[0.3em] text-brand-400">Phone</label>
+                  <input
+                    className="w-full bg-brand-50/60 border border-brand-100 rounded-2xl px-6 py-4 text-sm"
+                    placeholder="+91 98765 43210"
+                    value={careRequestDraft.phone}
+                    onChange={(e) => setCareRequestDraft({ ...careRequestDraft, phone: e.target.value })}
+                  />
+                </div>
+                <div className="space-y-3">
+                  <label className="text-[10px] font-black uppercase tracking-[0.3em] text-brand-400">Preferred time</label>
+                  <input
+                    type="text"
+                    className="w-full bg-brand-50/60 border border-brand-100 rounded-2xl px-6 py-4 text-sm"
+                    placeholder="e.g., Tomorrow 11am"
+                    value={careRequestDraft.preferredTime}
+                    onChange={(e) => setCareRequestDraft({ ...careRequestDraft, preferredTime: e.target.value })}
+                  />
+                </div>
+                <div className="space-y-3">
+                  <label className="text-[10px] font-black uppercase tracking-[0.3em] text-brand-400">Notes</label>
+                  <textarea
+                    className="w-full bg-brand-50/60 border border-brand-100 rounded-2xl px-6 py-4 text-sm h-28 resize-none"
+                    placeholder="Reason for callback"
+                    value={careRequestDraft.notes}
+                    onChange={(e) => setCareRequestDraft({ ...careRequestDraft, notes: e.target.value })}
+                  />
+                </div>
+              </>
+            )}
+            <button
+              onClick={() => {
+                handleSaveCareRequest();
+              }}
+              className="w-full bg-brand-900 text-white py-4 rounded-[2rem] font-black text-[10px] uppercase tracking-widest shadow-lg hover:bg-brand-500 transition-all"
+            >
+              Submit Request
+            </button>
+          </div>
+        </div>
+      )}
 
       {showNotifications && (
         <div className="fixed top-24 right-6 z-[120] w-[320px] bg-white border border-brand-50 rounded-[2rem] shadow-2xl p-6">
@@ -1253,6 +4226,55 @@ const Dashboard: React.FC<Props> = ({ user, setUser, onUpgrade, onLogout }) => {
           ) : (
             <p className="text-sm text-brand-800/50 font-medium italic">No new notifications.</p>
           )}
+        </div>
+      )}
+
+      {showTreats && (
+        <div className="fixed inset-0 z-[130] bg-brand-900/50 backdrop-blur-sm flex items-center justify-center p-6">
+          <div className="bg-white rounded-[3rem] p-8 max-w-lg w-full space-y-6 shadow-2xl">
+            <div className="flex items-center justify-between">
+              <div>
+                <h3 className="text-2xl font-display font-black text-brand-900">Pet Treats</h3>
+                <p className="text-[10px] font-bold uppercase tracking-[0.3em] text-brand-400">Earned rewards</p>
+              </div>
+              <button onClick={() => setShowTreats(false)} className="text-[10px] font-black uppercase tracking-widest text-brand-500">Close</button>
+            </div>
+              <div className="bg-brand-50/60 border border-brand-100 rounded-[2.5rem] p-6 space-y-2">
+                <p className="text-[10px] font-black uppercase tracking-[0.3em] text-brand-400">Total Treats</p>
+              <p className="text-4xl font-display font-black text-brand-900">{treatPoints}</p>
+              <p className="text-xs text-brand-800/60 font-medium">Earn treats for daily care, weekly check-ins, and activity logs.</p>
+              <div className="w-full h-2 bg-white rounded-full overflow-hidden border border-brand-100">
+                <div
+                  className="h-full bg-brand-900"
+                  style={{ width: `${Math.min(100, Math.round((claimedTreats / Math.max(treatPoints, 1)) * 100))}%` }}
+                />
+              </div>
+              <p className="text-[10px] font-bold uppercase tracking-widest text-brand-400">{claimedTreats} claimed · {Math.max(treatPoints - claimedTreats, 0)} available</p>
+            </div>
+            <div className="grid gap-3 text-sm text-brand-800/70 font-medium">
+              <p>Care tasks done: {checklistCompletedCount}</p>
+              <p>Care streak days: {checklistStreak}</p>
+              <p>Weekly check-ins: {treatsLedger.updates}</p>
+              <p>Activity logs: {treatsLedger.activities}</p>
+            </div>
+            <div className="grid gap-3">
+              <button
+                onClick={handleTreatClaim}
+                className="w-full bg-brand-900 text-white py-4 rounded-[2rem] font-black text-[10px] uppercase tracking-widest shadow-lg hover:bg-brand-500 transition-all"
+              >
+                Claim Rewards
+              </button>
+              <button
+                onClick={() => {
+                  setShowTreats(false);
+                  setActiveTab('play');
+                }}
+                className="w-full bg-white border border-brand-100 text-brand-900 py-3 rounded-[2rem] font-black text-[10px] uppercase tracking-widest"
+              >
+                Go to Activity Logs
+              </button>
+            </div>
+          </div>
         </div>
       )}
 

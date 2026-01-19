@@ -116,10 +116,33 @@ export const apiClient = {
     body: unknown,
     options: RequestInit & { auth?: boolean; skipAuthRefresh?: boolean } = {}
   ) {
+    let payload: string;
+    try {
+      payload = JSON.stringify(body);
+    } catch {
+      throw new Error('Invalid request data. Please try again.');
+    }
     return apiClient.request<T>(path, {
       ...options,
       method: 'POST',
-      body: JSON.stringify(body)
+      body: payload
+    });
+  },
+  patch<T>(
+    path: string,
+    body: unknown,
+    options: RequestInit & { auth?: boolean; skipAuthRefresh?: boolean } = {}
+  ) {
+    let payload: string;
+    try {
+      payload = JSON.stringify(body);
+    } catch {
+      throw new Error('Invalid request data. Please try again.');
+    }
+    return apiClient.request<T>(path, {
+      ...options,
+      method: 'PATCH',
+      body: payload
     });
   }
 };

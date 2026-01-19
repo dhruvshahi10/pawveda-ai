@@ -110,6 +110,19 @@ Acceptance criteria
 - Reminders and activity logs persist after logout.
 - Support submissions are stored and retrievable.
 
+## Phase 8: Feedback + Outcomes Analytics (1-2 sessions)
+Goal: capture parent feedback and pet progress updates for trend analysis.
+
+Steps
+- [ ] Add tables: parent_feedback, pet_updates.
+- [ ] Add API endpoints to submit feedback and pet updates.
+- [ ] Backfill existing localStorage pet update history into the DB on first login.
+- [ ] Create lightweight analytics queries (weekly NPS, sentiment by feature, weight trend by city/breed).
+
+Acceptance criteria
+- Feedback and pet updates are queryable in the DB.
+- Weekly trend dashboards can be built from stored data.
+
 ## Prompt Chain (Spring Boot aligned)
 Use these prompts one phase at a time.
 

@@ -1,5 +1,6 @@
 
 export interface PetData {
+  id?: string;
   name: string;
   breed: string;
   age: string;
@@ -178,6 +179,17 @@ export interface ActivityLog {
   notes?: string;
 }
 
+export interface ActivityLogRecord {
+  id: string;
+  petId: string;
+  activityType: string;
+  durationMinutes: number;
+  intensity?: string | null;
+  notes?: string | null;
+  occurredAt: string;
+  createdAt?: string;
+}
+
 export interface UserCredits {
   nutri: number;
   activity: number;
@@ -198,4 +210,115 @@ export interface UserState {
   };
   activities: ActivityLog[];
   memories: any[];
+}
+
+export interface PetUpdateRecord {
+  id: string;
+  petId: string;
+  updateDate: string;
+  weightValue?: number | null;
+  weightUnit?: string | null;
+  dietType?: string | null;
+  activityLevel?: string | null;
+  notes?: string | null;
+  createdAt?: string;
+}
+
+export interface DietLogRecord {
+  id: string;
+  petId: string;
+  logDate: string;
+  mealType?: string | null;
+  dietType?: string | null;
+  actualFood?: string | null;
+  deviation?: boolean | null;
+  createdAt?: string;
+}
+
+export interface MedicalEventRecord {
+  id: string;
+  petId: string;
+  eventType: string;
+  dateAdministered?: string | null;
+  nextDue?: string | null;
+  verifiedBy?: string | null;
+  notes?: string | null;
+  createdAt?: string;
+}
+
+export interface SymptomLogRecord {
+  id: string;
+  petId: string;
+  symptomType: string;
+  occurredAt: string;
+  severity?: number | null;
+  notes?: string | null;
+  createdAt?: string;
+}
+
+export interface ParentFeedbackRecord {
+  id: string;
+  petId: string;
+  rating?: number | null;
+  category?: string | null;
+  sentiment?: string | null;
+  message?: string | null;
+  tags?: string[] | null;
+  source?: string | null;
+  status?: string | null;
+  createdAt?: string;
+}
+
+export interface CareRequestRecord {
+  id: string;
+  petId: string;
+  requestType: string;
+  concern?: string | null;
+  notes?: string | null;
+  preferredTime?: string | null;
+  phone?: string | null;
+  location?: string | null;
+  urgency?: string | null;
+  reportType?: string | null;
+  status?: string | null;
+  createdAt?: string;
+}
+
+export interface DashboardMetric {
+  label: string;
+  value: string;
+  note: string;
+  detail: string;
+  status: 'good' | 'ok' | 'alert' | 'unknown';
+}
+
+export interface DashboardSummary {
+  petId: string;
+  range: string;
+  updatedAt: string;
+  healthScore?: number | null;
+  confidence?: string | null;
+  flags?: string[];
+  weightTrend: DashboardMetric;
+  activityTrend: DashboardMetric;
+  dietAdherence: DashboardMetric;
+  medicalCompliance: DashboardMetric;
+  environmentRisk: DashboardMetric;
+  symptomSignal: DashboardMetric;
+}
+
+export interface DashboardSeriesPoint {
+  date: string;
+  value: number | null;
+}
+
+export interface DashboardVitals {
+  petId: string;
+  range: string;
+  updatedAt: string;
+  weight: DashboardSeriesPoint[];
+  activity: DashboardSeriesPoint[];
+  diet: DashboardSeriesPoint[];
+  symptoms: DashboardSeriesPoint[];
+  environment: DashboardSeriesPoint[];
 }

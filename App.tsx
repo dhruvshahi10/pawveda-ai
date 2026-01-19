@@ -31,9 +31,17 @@ interface MeResponse {
   fullName?: string | null;
   role?: string | null;
   tier?: string | null;
+  petProfile?: any | null;
+  orgProfile?: {
+    contactName?: string | null;
+    phone?: string | null;
+    city?: string | null;
+    orgName?: string | null;
+  } | null;
 }
 
 const toPetData = (profile: any): PetData => ({
+  id: profile?.id ?? undefined,
   name: profile?.name ?? '',
   breed: profile?.breed ?? 'Indie / Pariah',
   age: profile?.age ?? 'Adult',
@@ -201,7 +209,22 @@ const AppRoutes: React.FC<{
           coerceRole(data?.user?.role) ??
           user.role ??
           'pet-parent';
-        const baseUser = { ...user, isLoggedIn: true, role: resolvedRole };
+        const baseUser: UserState = {
+          ...user,
+          isLoggedIn: true,
+          role: resolvedRole
+        };
+        if (me?.petProfile && resolvedRole === 'pet-parent') {
+          baseUser.pet = toPetData(me.petProfile);
+        }
+        if (me?.orgProfile && resolvedRole === 'ngo') {
+          baseUser.orgProfile = {
+            name: me.orgProfile.contactName || '',
+            phone: me.orgProfile.phone || '',
+            city: me.orgProfile.city || '',
+            orgName: me.orgProfile.orgName || undefined
+          };
+        }
         const nextUser = await hydrateProfile(baseUser, resolvedRole);
         if (active) {
           setUser(nextUser);

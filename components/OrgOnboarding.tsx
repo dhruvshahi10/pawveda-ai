@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { getAuthSession } from '../lib/auth';
 import { apiClient } from '../services/apiClient';
 
@@ -14,10 +14,32 @@ const OrgOnboarding: React.FC<Props> = ({ onComplete }) => {
     orgName: ''
   });
   const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState('');
+  const [toast, setToast] = useState<{ message: string; tone: 'error' | 'success' } | null>(null);
+  const toastTimeout = useRef<number | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (toastTimeout.current) {
+        window.clearTimeout(toastTimeout.current);
+      }
+    };
+  }, []);
+
+  const showToast = (message: string, tone: 'error' | 'success' = 'error') => {
+    setToast({ message, tone });
+    if (toastTimeout.current) {
+      window.clearTimeout(toastTimeout.current);
+    }
+    toastTimeout.current = window.setTimeout(() => {
+      setToast(null);
+    }, 3500);
+  };
 
   const handleSubmit = async () => {
     if (submitting) return;
     setSubmitting(true);
+    setError('');
     const session = getAuthSession();
     if (!session?.accessToken) {
       setSubmitting(false);
@@ -36,16 +58,32 @@ const OrgOnboarding: React.FC<Props> = ({ onComplete }) => {
         },
         { auth: true }
       );
+      showToast('Organization profile saved.', 'success');
+      onComplete(form);
     } catch (err) {
-      console.error('Failed to save org profile', err);
+      const message = err instanceof Error ? err.message : 'Failed to save org profile.';
+      setError(message);
+      showToast(message, 'error');
     } finally {
       setSubmitting(false);
-      onComplete(form);
     }
   };
 
   return (
     <div className="min-h-screen bg-[#FAF8F6] flex items-center justify-center p-6">
+      {toast && (
+        <div
+          role="status"
+          aria-live="polite"
+          className={`fixed top-6 left-1/2 z-50 w-[calc(100%-3rem)] max-w-md -translate-x-1/2 rounded-2xl px-5 py-4 text-sm font-semibold shadow-2xl border backdrop-blur-xl bg-white/70 animate-in slide-in-from-top-2 duration-300 md:left-auto md:right-6 md:translate-x-0 md:max-w-sm ${
+            toast.tone === 'success'
+              ? 'text-emerald-900 border-emerald-200 shadow-emerald-200/40'
+              : 'text-red-900 border-red-200 shadow-red-200/40'
+          }`}
+        >
+          {toast.message}
+        </div>
+      )}
       <div className="w-full max-w-xl bg-white rounded-[3rem] shadow-2xl p-10 space-y-8">
         <div className="text-center space-y-3">
           <span className="text-brand-500 font-black text-[10px] uppercase tracking-[0.3em]">NGO / General User</span>
@@ -78,6 +116,7 @@ const OrgOnboarding: React.FC<Props> = ({ onComplete }) => {
             onChange={(e) => setForm({ ...form, orgName: e.target.value })}
           />
         </div>
+        {error && <p className="text-center text-sm text-red-500 font-bold">{error}</p>}
         <button
           onClick={handleSubmit}
           disabled={submitting}
