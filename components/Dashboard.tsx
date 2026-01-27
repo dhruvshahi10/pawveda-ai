@@ -2,16 +2,16 @@
 import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { Link } from 'react-router-dom';
 import { ResponsiveContainer, LineChart, Line, XAxis, YAxis, Tooltip, BarChart, Bar, PieChart, Pie, Cell } from 'recharts';
-import { ActivityLog, ActivityLogRecord, CareRequestRecord, ChecklistHistoryPoint, ChecklistItem, ChecklistSection, DailyBrief, DashboardSummary, MicroTip, NearbyService, NutriLensResult, PetData, PetEvent, PetUpdateRecord, Reminder, SafetyRadar, UserCredits, UserState } from '../types';
+import { ActivityLog, ActivityLogRecord, CareRequestRecord, ChecklistHistoryPoint, ChecklistItem, ChecklistSection, DailyBrief, DashboardSummary, DietLogRecord, MicroTip, NearbyService, NutriLensResult, PetData, PetEvent, PetUpdateRecord, Reminder, SafetyRadar, UserCredits, UserState } from '../types';
 import { 
   analyzeNutriLens, 
   suggestActivity, 
-  generatePetArt, 
   generatePlayPlan
 } from '../services/geminiService';
 import { fetchDailyBrief, fetchNearbyServices, fetchPetEvents, fetchSafetyRadar, getChecklist, getMicroTips, seedChecklistHistory } from '../services/feedService';
 import { apiClient } from '../services/apiClient';
-import { createActivityLog, createCareRequest, createDietLog, createMedicalEvent, createParentFeedback, createPetUpdate, createSymptomLog, fetchActivityLogs, fetchCareRequests, fetchDashboardSummary, fetchPetUpdates } from '../services/dashboardService';
+import { createActivityLog, createDietLog, createMedicalEvent, createParentFeedback, createPetUpdate, createSymptomLog, fetchActivityLogs, fetchDashboardSummary, fetchDietLogs, fetchPetUpdates } from '../services/dashboardService';
+import { createTriageSession, fetchTriageSessions } from '../services/triageService';
 import Adoption from './Adoption';
 import { getAuthSession, setAuthSession } from '../lib/auth';
 import { getAllBlogs } from '../lib/content';
@@ -108,12 +108,37 @@ type MedicalEventEntry = {
   verifiedBy?: string | null;
   notes?: string | null;
 };
+type DietLogEntry = {
+  id: string;
+  logDate: string;
+  mealType?: string | null;
+  dietType?: string | null;
+  actualFood?: string | null;
+  synced?: boolean;
+};
+type TriageGuidance = {
+  badge: string;
+  headline: string;
+  summary: string;
+  steps: string[];
+  redFlags: string[];
+  tone: 'urgent' | 'soon' | 'monitor';
+};
+type TriageTopic = {
+  key: string;
+  label: string;
+  keywords: string[];
+  steps: string[];
+  redFlags: string[];
+};
 const QUICK_UPDATE_MODES: { value: QuickUpdateMode; label: string; helper: string }[] = [
   { value: 'weekly', label: 'Weekly check-in', helper: 'Weight, activity, diet summary.' },
   { value: 'diet', label: 'Diet log', helper: 'Diet type + food served.' },
   { value: 'medical', label: 'Medical event', helper: 'Vaccines, deworming, vet visits.' },
   { value: 'symptom', label: 'Symptom signal', helper: 'Track anything unusual.' }
 ];
+const VET_BRIEF_RANGE_OPTIONS = [7, 30, 60, 90] as const;
+type VetBriefRange = typeof VET_BRIEF_RANGE_OPTIONS[number];
 
 const listToCsv = (list?: string[]) => (list && list.length ? list.join(', ') : '');
 const csvToList = (value: string) =>
@@ -121,6 +146,145 @@ const csvToList = (value: string) =>
     .split(',')
     .map(item => item.trim())
     .filter(Boolean);
+const formatBriefDate = (value?: string | null) => {
+  if (!value) return '-';
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return value;
+  return parsed.toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' });
+};
+const safeValue = (value?: string | null) => (value && value.trim() ? value : '-');
+const toNumber = (value?: string | null) => {
+  if (!value) return null;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
+};
+const getTriageOutcomeLabel = (request?: CareRequestRecord | null) => {
+  if (!request) return '-';
+  if (request.outcome) return request.outcome;
+  const urgency = request.urgency?.toLowerCase() ?? '';
+  const requestType = request.requestType?.toLowerCase() ?? '';
+  if (requestType.includes('emergency') || urgency.includes('emergency') || urgency === 'high') return 'Emergency';
+  if (urgency.includes('visit') || urgency === 'medium') return 'Visit soon';
+  if (urgency.includes('monitor') || urgency === 'low') return 'Monitor';
+  return 'Review needed';
+};
+const TRIAGE_TOPICS: TriageTopic[] = [
+  {
+    key: 'gi',
+    label: 'GI distress',
+    keywords: ['vomit', 'vomiting', 'diarrhea', 'stool', 'poop', 'bloated', 'bloat', 'constipation', 'appetite', 'not eating', 'nausea'],
+    steps: ['Offer small sips of water.', 'Avoid new foods or treats.', 'Note last meal and any recent diet changes.'],
+    redFlags: ['Blood in vomit or stool', 'Repeated vomiting', 'Hard bloated abdomen', 'Severe lethargy']
+  },
+  {
+    key: 'resp',
+    label: 'Breathing issue',
+    keywords: ['breath', 'breathing', 'cough', 'pant', 'wheez', 'respiratory'],
+    steps: ['Keep your pet calm and cool.', 'Limit activity and heat exposure.', 'Note breathing rate and posture.'],
+    redFlags: ['Open-mouth breathing at rest', 'Blue or pale gums', 'Collapse', 'Rapid worsening']
+  },
+  {
+    key: 'injury',
+    label: 'Injury / limping',
+    keywords: ['limp', 'limping', 'paw', 'leg', 'injury', 'wound', 'bleeding', 'cut', 'sprain', 'fracture'],
+    steps: ['Limit movement and jumping.', 'Check paws and joints for swelling or debris.', 'Avoid human pain medication.'],
+    redFlags: ['Cannot bear weight', 'Open wound or bone visible', 'Bleeding that will not stop', 'Severe swelling']
+  },
+  {
+    key: 'skin',
+    label: 'Skin / itch',
+    keywords: ['itch', 'itchy', 'rash', 'skin', 'hot spot', 'ear', 'redness', 'allergy', 'hives'],
+    steps: ['Prevent licking or scratching.', 'Check for fleas or new products.', 'Take photos of affected areas.'],
+    redFlags: ['Facial swelling', 'Hives spreading quickly', 'Open sores', 'Ear discharge with pain']
+  },
+  {
+    key: 'urinary',
+    label: 'Urinary issue',
+    keywords: ['urine', 'urinating', 'pee', 'straining', 'litter', 'blood in urine'],
+    steps: ['Track urination frequency.', 'Ensure fresh water access.', 'Collect a urine sample if possible.'],
+    redFlags: ['Unable to urinate', 'Crying while urinating', 'Blood in urine', 'Vomiting with lethargy']
+  },
+  {
+    key: 'neuro',
+    label: 'Neuro / toxin',
+    keywords: ['seizure', 'collapse', 'faint', 'tremor', 'poison', 'toxin', 'chocolate', 'xylitol', 'grapes', 'ingested'],
+    steps: ['Seek vet guidance immediately.', 'Bring packaging or list of exposures.', 'Do not induce vomiting unless directed.'],
+    redFlags: ['Repeated seizures', 'Loss of consciousness', 'Unsteady walking', 'Vomiting after exposure']
+  }
+];
+const DEFAULT_TRIAGE_TOPIC: TriageTopic = {
+  key: 'general',
+  label: 'General concern',
+  keywords: [],
+  steps: ['Track appetite, energy, and bathroom habits.', 'Note any new foods, meds, or activities.', 'Capture photos or short videos of symptoms.'],
+  redFlags: ['Symptoms worsen quickly', 'Refuses food or water', 'Severe lethargy', 'Any breathing difficulty']
+};
+const detectTriageTopic = (concern?: string | null, notes?: string | null) => {
+  const text = `${concern ?? ''} ${notes ?? ''}`.toLowerCase();
+  if (!text.trim()) return DEFAULT_TRIAGE_TOPIC;
+  const matched = TRIAGE_TOPICS.find(topic => topic.keywords.some(keyword => text.includes(keyword)));
+  return matched || DEFAULT_TRIAGE_TOPIC;
+};
+const dedupeList = (items: string[]) => Array.from(new Set(items));
+const buildTriageGuidance = (urgency: string | null | undefined, topic: TriageTopic): TriageGuidance => {
+  const value = urgency?.toLowerCase() ?? '';
+  if (value.includes('emergency') || value === 'high') {
+    return {
+      badge: 'Emergency',
+      headline: 'Go to emergency care now',
+      summary: `Symptoms suggest an urgent ${topic.label.toLowerCase()} issue. Please seek immediate veterinary care.`,
+      steps: dedupeList([
+        'Go to the nearest 24/7 vet or emergency clinic.',
+        'Avoid giving human medication.',
+        'Bring this vet brief and any recent diet/meds info.',
+        ...topic.steps
+      ]).slice(0, 5),
+      redFlags: dedupeList([...topic.redFlags, 'Trouble breathing', 'Collapse or seizures']).slice(0, 5),
+      tone: 'urgent'
+    };
+  }
+  if (value.includes('visit') || value === 'medium') {
+    return {
+      badge: 'Visit Soon',
+      headline: 'Book a vet visit in 24-48 hours',
+      summary: `This looks concerning for ${topic.label.toLowerCase()}. A vet visit is recommended soon.`,
+      steps: dedupeList([
+        'Schedule a vet visit within the next 1-2 days.',
+        'Track appetite, energy, and bathroom habits.',
+        ...topic.steps
+      ]).slice(0, 5),
+      redFlags: dedupeList([...topic.redFlags, 'Symptoms worsen quickly']).slice(0, 5),
+      tone: 'soon'
+    };
+  }
+  return {
+    badge: 'Monitor',
+    headline: 'Monitor at home for 24-48 hours',
+    summary: `Symptoms seem mild for ${topic.label.toLowerCase()}. Monitor closely and log changes.`,
+    steps: dedupeList([
+      'Observe appetite, energy, and stool quality.',
+      ...topic.steps
+    ]).slice(0, 5),
+    redFlags: dedupeList([...topic.redFlags, 'Symptoms persist beyond 48 hours']).slice(0, 5),
+    tone: 'monitor'
+  };
+};
+const escapeHtml = (value: string) =>
+  value
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+const motionDelay = (index: number) =>
+  ({ '--delay': `${index * 70}ms` } as React.CSSProperties);
+const isWithinRange = (value: string | null | undefined, rangeDays: number) => {
+  if (!value) return false;
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return false;
+  const now = new Date();
+  const diffMs = now.getTime() - date.getTime();
+  const diffDays = diffMs / (1000 * 60 * 60 * 24);
+  return diffDays >= 0 && diffDays <= rangeDays;
+};
 
 const getChecklistOverrideKey = (pet?: PetData) =>
   `pawveda_checklist_overrides_${pet?.id || pet?.name || 'guest'}_${pet?.city || 'city'}`;
@@ -146,6 +310,7 @@ const buildPetDraft = (pet?: PetData) => ({
   spayNeuterStatus: pet?.spayNeuterStatus ?? 'Unknown',
   vaccinationStatus: pet?.vaccinationStatus ?? 'Not sure',
   lastVaccineDate: pet?.lastVaccineDate ?? '',
+  lastVetVisitDate: pet?.lastVetVisitDate ?? '',
   activityBaseline: pet?.activityBaseline ?? '30-60 min',
   housingType: pet?.housingType ?? 'Apartment',
   walkSurface: pet?.walkSurface ?? 'Mixed',
@@ -153,6 +318,12 @@ const buildPetDraft = (pet?: PetData) => ({
   feedingSchedule: pet?.feedingSchedule ?? 'Twice',
   foodBrand: pet?.foodBrand ?? '',
   vetAccess: pet?.vetAccess ?? 'Regular Vet',
+  conditions: listToCsv(pet?.conditions),
+  medications: listToCsv(pet?.medications),
+  primaryVetName: pet?.primaryVetName ?? '',
+  primaryVetPhone: pet?.primaryVetPhone ?? '',
+  emergencyContactName: pet?.emergencyContactName ?? '',
+  emergencyContactPhone: pet?.emergencyContactPhone ?? '',
   allergies: listToCsv(pet?.allergies),
   interests: listToCsv(pet?.interests),
   goals: listToCsv(pet?.goals)
@@ -184,6 +355,29 @@ const mapPetUpdateRecord = (record: PetUpdateRecord): PetUpdateEntry => ({
   notes: record.notes ?? undefined
 });
 
+const mapDietLogRecord = (record: DietLogRecord): DietLogEntry => ({
+  id: record.id,
+  logDate: record.logDate,
+  mealType: record.mealType ?? null,
+  dietType: record.dietType ?? null,
+  actualFood: record.actualFood ?? null,
+  synced: true
+});
+
+const buildDietLogKey = (entry: DietLogEntry) =>
+  `${entry.logDate}|${entry.mealType ?? ''}|${entry.dietType ?? ''}|${entry.actualFood ?? ''}`;
+const dedupeDietLogEntries = (entries: DietLogEntry[]) => {
+  const seen = new Set<string>();
+  return entries.filter(entry => {
+    const key = buildDietLogKey(entry);
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+};
+const buildCareRequestKey = (entry: CareRequestRecord) =>
+  `${entry.requestType}|${entry.concern ?? ''}|${entry.preferredTime ?? ''}|${entry.urgency ?? ''}|${entry.createdAt ?? ''}`;
+
 const mapActivityLogRecord = (record: ActivityLogRecord, advice?: string): ActivityLog => {
   const type = ['Walk', 'Play', 'Training'].includes(record.activityType) ? record.activityType as ActivityLog['type'] : 'Walk';
   return {
@@ -197,7 +391,7 @@ const mapActivityLogRecord = (record: ActivityLogRecord, advice?: string): Activ
 };
 
 const Dashboard: React.FC<Props> = ({ user, setUser, onUpgrade, onLogout }) => {
-  const [activeTab, setActiveTab] = useState<'home' | 'nutri' | 'play' | 'studio' | 'parent' | 'adoption'>('home');
+  const [activeTab, setActiveTab] = useState<'home' | 'nutri' | 'play' | 'triage' | 'parent' | 'adoption'>('home');
   const [isProcessing, setIsProcessing] = useState(false);
   const [loadingMsg, setLoadingMsg] = useState('');
   const [microTips, setMicroTips] = useState<MicroTip[]>([]);
@@ -248,6 +442,7 @@ const Dashboard: React.FC<Props> = ({ user, setUser, onUpgrade, onLogout }) => {
   const [parentSaveState, setParentSaveState] = useState<'idle' | 'saving' | 'success' | 'error'>('idle');
   const [parentSaveError, setParentSaveError] = useState('');
   const [petUpdates, setPetUpdates] = useState<PetUpdateEntry[]>([]);
+  const [dietLogs, setDietLogs] = useState<DietLogEntry[]>([]);
   const [dashboardSummary, setDashboardSummary] = useState<DashboardSummary | null>(null);
   const [dietLogDraft, setDietLogDraft] = useState({
     logDate: new Date().toISOString().slice(0, 10),
@@ -277,19 +472,24 @@ const Dashboard: React.FC<Props> = ({ user, setUser, onUpgrade, onLogout }) => {
   });
   const [toast, setToast] = useState<{ message: string; tone: 'error' | 'success' } | null>(null);
   const toastTimeout = useRef<number | null>(null);
+  const dietSyncingRef = useRef(false);
+  const careSyncingRef = useRef(false);
   const [reminders, setReminders] = useState<Reminder[]>([]);
   const [treatsLedger, setTreatsLedger] = useState({ activities: 0, updates: 0 });
   const [showSymptomDetails, setShowSymptomDetails] = useState(false);
   const [showCareRequest, setShowCareRequest] = useState(false);
+  const [showVetBrief, setShowVetBrief] = useState(false);
+  const [vetBriefRangeDays, setVetBriefRangeDays] = useState<VetBriefRange>(30);
+  const [selectedTriage, setSelectedTriage] = useState<CareRequestRecord | null>(null);
   const [careRequestDraft, setCareRequestDraft] = useState({
-    type: 'Vet consult',
+    type: 'Triage',
     concern: '',
     notes: '',
     preferredTime: '',
     phone: '',
     location: '',
-    urgency: 'High',
-    reportType: 'Lab report'
+    urgency: 'Monitor',
+    reportType: ''
   });
   const [symptomLogs, setSymptomLogs] = useState<SymptomLogEntry[]>([]);
   const [medicalEvents, setMedicalEvents] = useState<MedicalEventEntry[]>([]);
@@ -323,9 +523,6 @@ const Dashboard: React.FC<Props> = ({ user, setUser, onUpgrade, onLogout }) => {
   const [filterType, setFilterType] = useState<'All' | 'Walk' | 'Play' | 'Training'>('All');
   const [filterDate, setFilterDate] = useState<'All' | 'Today' | 'Week'>('All');
   
-  // Studio State
-  const [studioPrompt, setStudioPrompt] = useState('');
-  const [generatedArt, setGeneratedArt] = useState<string | null>(null);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -345,6 +542,83 @@ const Dashboard: React.FC<Props> = ({ user, setUser, onUpgrade, onLogout }) => {
     toastTimeout.current = window.setTimeout(() => {
       setToast(null);
     }, 3500);
+  };
+  const handleCopyVetBrief = async () => {
+    try {
+      await navigator.clipboard.writeText(vetBriefText);
+      showToast('Vet brief copied.', 'success');
+    } catch {
+      showToast('Unable to copy vet brief.', 'error');
+    }
+  };
+  const handlePrintVetBrief = () => {
+    const petName = user.pet?.name || 'Pet';
+    const printWindow = window.open('', 'pawveda-vet-brief', 'width=920,height=720');
+    if (!printWindow) {
+      showToast('Popup blocked. Allow popups to export.', 'error');
+      return;
+    }
+    const safeName = escapeHtml(petName);
+    printWindow.document.write(`<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Vet Brief - ${safeName}</title>
+  <style>
+    body { font-family: Arial, sans-serif; margin: 32px; color: #2F1B0C; }
+    h1 { margin: 0; font-size: 26px; }
+    h2 { font-size: 16px; margin: 20px 0 8px; }
+    .report-header { border: 1px solid #F2C7A5; border-radius: 18px; padding: 18px 20px; background: linear-gradient(135deg, #FFF5EA 0%, #FFE3C9 100%); }
+    .brand-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+    .brand-title { font-size: 22px; font-weight: 800; letter-spacing: 0.08em; text-transform: uppercase; color: #7A3D12; }
+    .brand-chip { font-size: 10px; font-weight: 800; letter-spacing: 0.2em; text-transform: uppercase; background: #F59F5B; color: #fff; padding: 6px 10px; border-radius: 999px; }
+    .report-footer { margin-top: 18px; border-top: 1px solid #F2C7A5; padding-top: 10px; display: flex; justify-content: space-between; font-size: 10px; color: #9A6B44; }
+    .brand-bar { height: 8px; border-radius: 999px; background: linear-gradient(90deg, #F59F5B 0%, #F0743E 50%, #F9C38E 100%); margin: 18px 0; }
+    .hero { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; margin-bottom: 16px; }
+    .card { border: 1px solid #E6D9CF; border-radius: 16px; padding: 14px; background: #FFF9F3; }
+    .eyebrow { font-size: 10px; letter-spacing: 0.2em; text-transform: uppercase; color: #B28A6B; margin: 0 0 6px; }
+    .muted { color: #7B5E48; font-size: 12px; margin: 6px 0 0; }
+    .chip-row { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+    .chip { border: 1px solid #E6D9CF; border-radius: 999px; padding: 4px 10px; font-size: 11px; background: #FFF; }
+    .pill { display: inline-block; padding: 4px 10px; border-radius: 999px; font-size: 11px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; border: 1px solid transparent; margin-bottom: 6px; }
+    .pill-urgent { background: #FDE8E8; color: #B42318; border-color: #F9BDBD; }
+    .pill-soon { background: #FFF4E5; color: #B45309; border-color: #FBD38D; }
+    .pill-monitor { background: #ECFDF3; color: #027A48; border-color: #A6F4C5; }
+    .meta { font-size: 12px; color: #7B5E48; margin: 8px 0 0; }
+    .content { font-size: 13px; line-height: 1.6; }
+    table { width: 100%; border-collapse: collapse; margin-bottom: 12px; }
+    th, td { border: 1px solid #E6D9CF; padding: 6px 8px; font-size: 12px; vertical-align: top; }
+    th { background: #FFE3C9; color: #7A3D12; text-align: left; letter-spacing: 0.08em; text-transform: uppercase; font-size: 10px; }
+    tbody tr:nth-child(odd) td { background: #FFF9F3; }
+    .sparkline { border: 1px solid #E6D9CF; border-radius: 12px; padding: 10px; background: #FFF; }
+    .sparkline svg { width: 100%; height: 60px; display: block; }
+    .spark-labels { display: flex; justify-content: space-between; font-size: 10px; color: #B28A6B; margin-top: 4px; text-transform: uppercase; letter-spacing: 0.08em; }
+    .spark-empty { font-size: 11px; color: #7B5E48; }
+    .note { font-size: 11px; color: #7B5E48; margin-top: 16px; }
+  </style>
+</head>
+<body>
+  <div class="report-header">
+    <div class="brand-row">
+      <div>
+        <div class="brand-title">Pawveda Vet Brief</div>
+        <div class="meta">Generated for ${safeName} | Data range: ${escapeHtml(vetBriefRangeLabel)}</div>
+      </div>
+      <div class="brand-chip">Pawveda Care</div>
+    </div>
+  </div>
+  <div class="brand-bar"></div>
+  <div class="content">${vetBriefHtml}</div>
+  <div class="brand-bar"></div>
+  <div class="report-footer">
+    <span>Not a diagnosis. Share with your veterinarian.</span>
+    <span>${new Date().toLocaleDateString('en-IN')}</span>
+  </div>
+</body>
+</html>`);
+    printWindow.document.close();
+    printWindow.focus();
+    printWindow.print();
   };
 
   const dateKey = (value: Date) => value.toISOString().slice(0, 10);
@@ -369,6 +643,11 @@ const Dashboard: React.FC<Props> = ({ user, setUser, onUpgrade, onLogout }) => {
 
   const getPetUpdateStorageKey = (pet?: PetData) =>
     `pawveda_pet_updates_${pet?.id || pet?.name || 'guest'}_${pet?.city || 'city'}`;
+
+  const getDietLogStorageKey = (pet?: PetData) =>
+    `pawveda_diet_logs_${pet?.id || pet?.name || 'guest'}_${pet?.city || 'city'}`;
+  const getLegacyDietLogStorageKey = (pet?: PetData) =>
+    `pawveda_diet_logs_${pet?.name || 'guest'}_${pet?.city || 'city'}`;
 
   const getTreatsStorageKey = (pet?: PetData) =>
     `pawveda_treats_claimed_${pet?.id || pet?.name || 'guest'}_${pet?.city || 'city'}`;
@@ -440,6 +719,15 @@ const Dashboard: React.FC<Props> = ({ user, setUser, onUpgrade, onLogout }) => {
     }
   };
 
+  const persistDietLogs = (pet: PetData | undefined, logs: DietLogEntry[]) => {
+    if (!pet) return;
+    try {
+      localStorage.setItem(getDietLogStorageKey(pet), JSON.stringify(logs));
+    } catch {
+      // ignore
+    }
+  };
+
   const logPetUpdate = (pet: PetData | undefined, entry: PetUpdateEntry) => {
     if (!pet) return;
     const next = [...petUpdates];
@@ -454,6 +742,45 @@ const Dashboard: React.FC<Props> = ({ user, setUser, onUpgrade, onLogout }) => {
     const trimmed = next.slice(0, 12);
     setPetUpdates(trimmed);
     persistPetUpdates(pet, trimmed);
+  };
+
+  const logDietLog = (pet: PetData | undefined, entry: DietLogEntry) => {
+    if (!pet) return;
+    setDietLogs(prev => {
+      const next = [entry, ...prev].slice(0, 30);
+      persistDietLogs(pet, next);
+      return next;
+    });
+  };
+
+  const replaceDietLog = (pet: PetData | undefined, localId: string, entry: DietLogEntry) => {
+    if (!pet) return;
+    setDietLogs(prev => {
+      const replaced = prev.map(item => (item.id === localId ? entry : item));
+      const exists = replaced.some(item => item.id === entry.id);
+      const next = exists ? replaced : [entry, ...replaced];
+      const trimmed = next.slice(0, 30);
+      persistDietLogs(pet, trimmed);
+      return trimmed;
+    });
+  };
+
+  const mergeDietLogs = (remote: DietLogEntry[], local: DietLogEntry[]) => {
+    const seen = new Set(remote.map(buildDietLogKey));
+    const pending = local.filter(entry => entry.synced === false && !seen.has(buildDietLogKey(entry)));
+    const combined = dedupeDietLogEntries([...pending, ...remote]);
+    return combined
+      .sort((a, b) => b.logDate.localeCompare(a.logDate))
+      .slice(0, 30);
+  };
+
+  const mergeCareRequests = (remote: CareRequestRecord[], local: CareRequestRecord[]) => {
+    const seen = new Set(remote.map(buildCareRequestKey));
+    const pending = local.filter(entry => entry.id.startsWith('local-') && !seen.has(buildCareRequestKey(entry)));
+    const combined = [...pending, ...remote];
+    return combined
+      .sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''))
+      .slice(0, 20);
   };
 
   const openParentProfile = () => {
@@ -494,6 +821,20 @@ const Dashboard: React.FC<Props> = ({ user, setUser, onUpgrade, onLogout }) => {
     setPetSaveState('idle');
     setPetSaveError('');
     setShowPetQuickUpdate(true);
+  };
+
+  const openTriageModal = () => {
+    setCareRequestDraft({
+      type: 'Triage',
+      concern: '',
+      notes: '',
+      preferredTime: '',
+      phone: '',
+      location: '',
+      urgency: 'Monitor',
+      reportType: ''
+    });
+    setShowCareRequest(true);
   };
 
   const ensurePetId = async () => {
@@ -542,6 +883,7 @@ const Dashboard: React.FC<Props> = ({ user, setUser, onUpgrade, onLogout }) => {
           spayNeuterStatus: petDraft.spayNeuterStatus,
           vaccinationStatus: petDraft.vaccinationStatus,
           lastVaccineDate: petDraft.lastVaccineDate || null,
+          lastVetVisitDate: petDraft.lastVetVisitDate || null,
           activityBaseline: petDraft.activityBaseline,
           housingType: petDraft.housingType,
           walkSurface: petDraft.walkSurface,
@@ -549,6 +891,12 @@ const Dashboard: React.FC<Props> = ({ user, setUser, onUpgrade, onLogout }) => {
           feedingSchedule: petDraft.feedingSchedule,
           foodBrand: petDraft.foodBrand,
           vetAccess: petDraft.vetAccess,
+          conditions: csvToList(petDraft.conditions),
+          medications: csvToList(petDraft.medications),
+          primaryVetName: petDraft.primaryVetName || null,
+          primaryVetPhone: petDraft.primaryVetPhone || null,
+          emergencyContactName: petDraft.emergencyContactName || null,
+          emergencyContactPhone: petDraft.emergencyContactPhone || null,
           allergies: csvToList(petDraft.allergies),
           interests: csvToList(petDraft.interests),
           goals: csvToList(petDraft.goals)
@@ -566,6 +914,8 @@ const Dashboard: React.FC<Props> = ({ user, setUser, onUpgrade, onLogout }) => {
         ...petDraft,
         id: user.pet.id
       };
+      updatedPet.conditions = csvToList(petDraft.conditions);
+      updatedPet.medications = csvToList(petDraft.medications);
       updatedPet.allergies = csvToList(petDraft.allergies);
       updatedPet.interests = csvToList(petDraft.interests);
       updatedPet.goals = csvToList(petDraft.goals);
@@ -598,8 +948,29 @@ const Dashboard: React.FC<Props> = ({ user, setUser, onUpgrade, onLogout }) => {
     setPetSaveError('');
     try {
       const petId = await ensurePetId();
+      const localEntry: PetUpdateEntry = {
+        id: `local-${Date.now()}`,
+        date: quickUpdateDraft.date || dateKey(new Date()),
+        weight: quickUpdateDraft.weight,
+        dietType: quickUpdateDraft.dietType,
+        activityLevel: quickUpdateDraft.activityLevel,
+        notes: quickUpdateDraft.notes
+      };
+      logPetUpdate(user.pet, localEntry);
+      setUser({
+        ...user,
+        pet: {
+          ...user.pet,
+          weight: quickUpdateDraft.weight,
+          dietType: quickUpdateDraft.dietType,
+          activityLevel: quickUpdateDraft.activityLevel
+        }
+      });
+      setTreatsLedger(prev => ({ ...prev, updates: prev.updates + 1 }));
       if (!petId) {
-        throw new Error('Unable to locate pet profile.');
+        setPetSaveState('success');
+        showToast('Saved locally. Sync pending.', 'success');
+        return true;
       }
       await apiClient.patch(
         `/api/pets/${petId}`,
@@ -610,7 +981,7 @@ const Dashboard: React.FC<Props> = ({ user, setUser, onUpgrade, onLogout }) => {
         },
         { auth: true }
       );
-      const createdUpdate = await createPetUpdate({
+      await createPetUpdate({
         petId,
         updateDate: quickUpdateDraft.date || dateKey(new Date()),
         weightValue: Number.isNaN(parsedWeight) ? null : parsedWeight,
@@ -619,33 +990,15 @@ const Dashboard: React.FC<Props> = ({ user, setUser, onUpgrade, onLogout }) => {
         activityLevel: quickUpdateDraft.activityLevel,
         notes: quickUpdateDraft.notes
       });
-      logPetUpdate(user.pet, {
-        id: createdUpdate.id,
-        date: quickUpdateDraft.date || dateKey(new Date()),
-        weight: quickUpdateDraft.weight,
-        dietType: quickUpdateDraft.dietType,
-        activityLevel: quickUpdateDraft.activityLevel,
-        notes: quickUpdateDraft.notes
-      });
-      setUser({
-        ...user,
-        pet: {
-          ...user.pet,
-          weight: quickUpdateDraft.weight,
-          dietType: quickUpdateDraft.dietType,
-          activityLevel: quickUpdateDraft.activityLevel
-        }
-      });
       setPetSaveState('success');
       showToast('Update logged.', 'success');
-      setTreatsLedger(prev => ({ ...prev, updates: prev.updates + 1 }));
       return true;
     } catch (err) {
-      const message = err instanceof Error ? err.message : 'Failed to update pet.';
-      setPetSaveState('error');
-      setPetSaveError(message);
-      showToast(message, 'error');
-      return false;
+      const message = err instanceof Error ? err.message : 'Unable to sync update.';
+      setPetSaveState('success');
+      setPetSaveError('');
+      showToast(`Saved locally. ${message}`, 'success');
+      return true;
     }
   };
 
@@ -821,9 +1174,28 @@ const Dashboard: React.FC<Props> = ({ user, setUser, onUpgrade, onLogout }) => {
         }
 
         try {
-          const careStored = localStorage.getItem('pawveda_care_requests');
-          if (careStored) {
-            const parsed = JSON.parse(careStored);
+          const dietStored = localStorage.getItem(getDietLogStorageKey(user.pet));
+          if (dietStored) {
+            const parsed = JSON.parse(dietStored);
+            setDietLogs(Array.isArray(parsed) ? parsed : []);
+          } else {
+            const legacyKey = getLegacyDietLogStorageKey(user.pet);
+            const legacyStored = localStorage.getItem(legacyKey);
+            if (legacyStored) {
+              const parsed = JSON.parse(legacyStored);
+              setDietLogs(Array.isArray(parsed) ? parsed : []);
+            } else {
+              setDietLogs([]);
+            }
+          }
+        } catch {
+          setDietLogs([]);
+        }
+
+        try {
+          const triageStored = localStorage.getItem('pawveda_triage_sessions');
+          if (triageStored) {
+            const parsed = JSON.parse(triageStored);
             setCareRequests(Array.isArray(parsed) ? parsed : []);
           } else {
             setCareRequests([]);
@@ -881,9 +1253,10 @@ const Dashboard: React.FC<Props> = ({ user, setUser, onUpgrade, onLogout }) => {
         fetchDashboardSummary(petId, trendRange),
         fetchPetUpdates(petId, rangeDays),
         fetchActivityLogs(petId, rangeDays),
-        fetchCareRequests(petId)
+        fetchTriageSessions(petId),
+        fetchDietLogs(petId, 365)
       ]);
-      const [summaryResult, updatesResult, activityResult, careResult] = results;
+      const [summaryResult, updatesResult, activityResult, careResult, dietResult] = results;
       if (summaryResult.status === 'fulfilled') {
         setDashboardSummary(summaryResult.value);
       }
@@ -895,16 +1268,125 @@ const Dashboard: React.FC<Props> = ({ user, setUser, onUpgrade, onLogout }) => {
         setUser({ ...user, activities: mapped });
       }
       if (careResult.status === 'fulfilled') {
-        setCareRequests(careResult.value);
-        try {
-          localStorage.setItem('pawveda_care_requests', JSON.stringify(careResult.value));
-        } catch {
-          // ignore
-        }
+        setCareRequests(prev => {
+          const merged = mergeCareRequests(careResult.value, prev);
+          try {
+            localStorage.setItem('pawveda_triage_sessions', JSON.stringify(merged));
+          } catch {
+            // ignore
+          }
+          return merged;
+        });
+      }
+      if (dietResult.status === 'fulfilled') {
+        const mapped = dietResult.value.map(mapDietLogRecord);
+        setDietLogs(prev => {
+          const merged = mergeDietLogs(mapped, prev);
+          persistDietLogs(user.pet, merged);
+          return merged;
+        });
       }
     };
     loadDashboardInsights();
   }, [user.pet, user.isLoggedIn, trendRange]);
+
+  useEffect(() => {
+    const syncDietLogs = async () => {
+      if (!user.pet || !user.isLoggedIn) return;
+      if (dietSyncingRef.current) return;
+      const pending = dietLogs.filter(entry => entry.synced === false);
+      if (!pending.length) return;
+      const petId = user.pet.id || await ensurePetId();
+      if (!petId) return;
+      dietSyncingRef.current = true;
+      const results = await Promise.allSettled(
+        pending.map(entry =>
+          createDietLog({
+            petId,
+            logDate: entry.logDate,
+            mealType: entry.mealType,
+            dietType: entry.dietType || null,
+            actualFood: entry.actualFood || null
+          })
+        )
+      );
+      const synced = results
+        .map((result, index) => ({ result, localId: pending[index].id }))
+        .filter((item): item is { result: PromiseFulfilledResult<DietLogRecord>; localId: string } => item.result.status === 'fulfilled' && !!item.localId)
+        .map(item => ({ localId: item.localId, entry: mapDietLogRecord(item.result.value) }));
+      if (synced.length) {
+        setDietLogs(prev => {
+          let next = [...prev];
+          synced.forEach(({ localId, entry }) => {
+            const index = next.findIndex(item => item.id === localId);
+            if (index >= 0) {
+              next[index] = entry;
+            } else {
+              next = [entry, ...next];
+            }
+          });
+          const trimmed = dedupeDietLogEntries(next).slice(0, 30);
+          persistDietLogs(user.pet, trimmed);
+          return trimmed;
+        });
+      }
+      dietSyncingRef.current = false;
+    };
+    syncDietLogs();
+  }, [dietLogs, user.pet, user.isLoggedIn]);
+
+  useEffect(() => {
+    const syncCareRequests = async () => {
+      if (!user.pet || !user.isLoggedIn) return;
+      if (careSyncingRef.current) return;
+      const pending = careRequests.filter(entry => entry.id.startsWith('local-'));
+      if (!pending.length) return;
+      const petId = user.pet.id || await ensurePetId();
+      if (!petId) return;
+      careSyncingRef.current = true;
+      const results = await Promise.allSettled(
+        pending.map(entry =>
+          createTriageSession({
+            petId,
+            requestType: entry.requestType,
+            concern: entry.concern || null,
+            notes: entry.notes || null,
+            preferredTime: entry.preferredTime || null,
+            phone: entry.phone || null,
+            location: entry.location || null,
+            urgency: entry.urgency || null,
+            reportType: entry.reportType || null
+          })
+        )
+      );
+      const synced = results
+        .map((result, index) => ({ result, localId: pending[index].id }))
+        .filter((item): item is { result: PromiseFulfilledResult<CareRequestRecord>; localId: string } => item.result.status === 'fulfilled' && !!item.localId)
+        .map(item => ({ localId: item.localId, entry: item.result.value }));
+      if (synced.length) {
+        setCareRequests(prev => {
+          let next = [...prev];
+          synced.forEach(({ localId, entry }) => {
+            const index = next.findIndex(item => item.id === localId);
+            if (index >= 0) {
+              next[index] = entry;
+            } else {
+              next = [entry, ...next];
+            }
+          });
+          const merged = mergeCareRequests(next, []);
+          try {
+            localStorage.setItem('pawveda_triage_sessions', JSON.stringify(merged));
+          } catch {
+            // ignore
+          }
+          return merged;
+        });
+      }
+      careSyncingRef.current = false;
+    };
+    syncCareRequests();
+  }, [careRequests, user.pet, user.isLoggedIn]);
 
   useEffect(() => {
     const loadTreatsLedger = async () => {
@@ -1003,25 +1485,40 @@ const Dashboard: React.FC<Props> = ({ user, setUser, onUpgrade, onLogout }) => {
   const handleSaveDietLog = async (): Promise<boolean> => {
     if (!user.pet) return false;
     const petId = user.pet.id || await ensurePetId();
-    if (!petId) return false;
     if (!dietLogDraft.dietType && !dietLogDraft.actualFood) {
       showToast('Add a diet type or food served to save.', 'error');
       return false;
     }
     try {
-      await createDietLog({
+      const localEntry: DietLogEntry = {
+        id: `local-${Date.now()}`,
+        logDate: dietLogDraft.logDate || dateKey(new Date()),
+        mealType: dietLogDraft.mealType,
+        dietType: dietLogDraft.dietType || null,
+        actualFood: dietLogDraft.actualFood || null,
+        synced: false
+      };
+      logDietLog(user.pet, localEntry);
+      if (!petId) {
+        setDietLogDraft({ ...dietLogDraft, actualFood: '' });
+        showToast('Saved locally. Sync pending.', 'success');
+        return true;
+      }
+      const created = await createDietLog({
         petId,
         logDate: dietLogDraft.logDate,
         mealType: dietLogDraft.mealType,
         dietType: dietLogDraft.dietType || null,
         actualFood: dietLogDraft.actualFood || null
       });
+      replaceDietLog(user.pet, localEntry.id, mapDietLogRecord(created));
       setDietLogDraft({ ...dietLogDraft, actualFood: '' });
       showToast('Diet log saved.', 'success');
       return true;
     } catch {
-      showToast('Unable to save diet log.', 'error');
-      return false;
+      setDietLogDraft({ ...dietLogDraft, actualFood: '' });
+      showToast('Saved locally. Sync pending.', 'success');
+      return true;
     }
   };
 
@@ -1114,6 +1611,34 @@ const Dashboard: React.FC<Props> = ({ user, setUser, onUpgrade, onLogout }) => {
     if (!user.pet) return;
     const petId = user.pet.id || await ensurePetId();
     if (!petId) return;
+    if (!careRequestDraft.concern.trim()) {
+      showToast('Add a primary concern to continue.', 'error');
+      return;
+    }
+    const createdAt = new Date().toISOString();
+    const localEntry: CareRequestRecord = {
+      id: `local-${Date.now()}`,
+      petId,
+      requestType: careRequestDraft.type,
+      concern: careRequestDraft.concern || null,
+      notes: careRequestDraft.notes || null,
+      preferredTime: careRequestDraft.preferredTime || null,
+      phone: careRequestDraft.phone || null,
+      location: careRequestDraft.location || null,
+      urgency: careRequestDraft.urgency || null,
+      reportType: careRequestDraft.reportType || null,
+      status: 'logged',
+      createdAt
+    };
+    const optimistic = [localEntry, ...careRequests];
+    setCareRequests(optimistic);
+    try {
+      localStorage.setItem('pawveda_triage_sessions', JSON.stringify(optimistic));
+    } catch {
+      // ignore
+    }
+    setSelectedTriage(localEntry);
+    setShowCareRequest(false);
     const payload = {
       petId,
       requestType: careRequestDraft.type,
@@ -1126,19 +1651,19 @@ const Dashboard: React.FC<Props> = ({ user, setUser, onUpgrade, onLogout }) => {
       reportType: careRequestDraft.reportType || null
     };
     try {
-      const created = await createCareRequest(payload);
-      const next = [created, ...careRequests];
+      const created = await createTriageSession(payload);
+      const next = [created, ...optimistic.filter(item => item.id !== localEntry.id)];
       setCareRequests(next);
       try {
-        localStorage.setItem('pawveda_care_requests', JSON.stringify(next));
+        localStorage.setItem('pawveda_triage_sessions', JSON.stringify(next));
       } catch {
         // ignore
       }
-      setShowCareRequest(false);
-      showToast('Request submitted. We will reach out shortly.', 'success');
+      setSelectedTriage(created);
+      showToast('Triage submitted. Your vet brief is ready.', 'success');
     } catch (err) {
-      const message = err instanceof Error ? err.message : 'Unable to submit request.';
-      showToast(message, 'error');
+      const message = err instanceof Error ? err.message : 'Unable to sync triage.';
+      showToast(`Saved locally. ${message}`, 'success');
     }
   };
 
@@ -1457,6 +1982,49 @@ const Dashboard: React.FC<Props> = ({ user, setUser, onUpgrade, onLogout }) => {
 
   const rangeDays = trendRange === 'daily' ? 1 : trendRange === 'weekly' ? 7 : 30;
   const rangeLabel = trendRange === 'daily' ? 'Last 24 hours' : trendRange === 'weekly' ? 'Last 7 days' : 'Last 30 days';
+  const latestCareRequest = careRequests[0] || null;
+  const activeTriage = selectedTriage || latestCareRequest;
+  const hasActiveTriage = Boolean(activeTriage);
+  const latestTriageDate = latestCareRequest?.createdAt
+    ? new Date(latestCareRequest.createdAt).toLocaleDateString('en-IN')
+    : '—';
+  const latestTriageOutcomeLabel = getTriageOutcomeLabel(latestCareRequest);
+  const activeTriageOutcomeLabel = getTriageOutcomeLabel(activeTriage);
+  const activeTriageTopic = useMemo(
+    () => detectTriageTopic(activeTriage?.concern, activeTriage?.notes),
+    [activeTriage?.concern, activeTriage?.notes]
+  );
+  const draftTriageTopic = useMemo(
+    () => detectTriageTopic(careRequestDraft.concern, careRequestDraft.notes),
+    [careRequestDraft.concern, careRequestDraft.notes]
+  );
+  const activeTriageGuidance = useMemo(
+    () => buildTriageGuidance(activeTriage?.urgency, activeTriageTopic),
+    [activeTriage?.urgency, activeTriageTopic]
+  );
+  const draftTriageGuidance = useMemo(
+    () => buildTriageGuidance(careRequestDraft.urgency, draftTriageTopic),
+    [careRequestDraft.urgency, draftTriageTopic]
+  );
+  const triageToneClass = !hasActiveTriage
+    ? 'bg-brand-50 text-brand-500 border-brand-100'
+    : activeTriageGuidance.tone === 'urgent'
+    ? 'bg-rose-100 text-rose-700 border-rose-200'
+    : activeTriageGuidance.tone === 'soon'
+    ? 'bg-amber-100 text-amber-700 border-amber-200'
+    : 'bg-emerald-100 text-emerald-700 border-emerald-200';
+  const triageBadgeLabel = hasActiveTriage ? activeTriageGuidance.badge : 'No data';
+  const draftTriageToneClass =
+    draftTriageGuidance.tone === 'urgent'
+      ? 'bg-rose-100 text-rose-700 border-rose-200'
+      : draftTriageGuidance.tone === 'soon'
+      ? 'bg-amber-100 text-amber-700 border-amber-200'
+      : 'bg-emerald-100 text-emerald-700 border-emerald-200';
+  const triageHighlights = [
+    { title: '3 quick questions', desc: 'Describe symptoms and when they started.' },
+    { title: 'Clear next step', desc: 'Emergency vs monitor guidance.' },
+    { title: 'Vet-ready brief', desc: 'Share a clean summary with your clinic.' }
+  ];
   const formatDate = (value?: string) =>
     value ? new Date(value).toLocaleDateString('en-IN', { month: 'short', day: 'numeric' }) : '—';
   const activeQuickUpdateMode = useMemo(
@@ -1490,6 +2058,517 @@ const Dashboard: React.FC<Props> = ({ user, setUser, onUpgrade, onLogout }) => {
   const sortedCheckins = useMemo(() => {
     return [...petUpdates].sort((a, b) => b.date.localeCompare(a.date));
   }, [petUpdates]);
+  const vetBriefRangeLabel = `Last ${vetBriefRangeDays} days`;
+  const vetBriefRangeLowerLabel = `last ${vetBriefRangeDays} days`;
+  const vetBriefRangeSentence = `the last ${vetBriefRangeDays} days`;
+  const rangeCheckins = useMemo(() => {
+    return sortedCheckins.filter(entry => isWithinRange(entry.date, vetBriefRangeDays));
+  }, [sortedCheckins, vetBriefRangeDays]);
+  const rangeSymptoms = useMemo(() => {
+    return symptomLogs.filter(entry => isWithinRange(entry.occurredAt, vetBriefRangeDays));
+  }, [symptomLogs, vetBriefRangeDays]);
+  const rangeMedicalEvents = useMemo(() => {
+    return medicalEvents.filter(entry => isWithinRange(entry.dateAdministered, vetBriefRangeDays));
+  }, [medicalEvents, vetBriefRangeDays]);
+  const rangeDietLogs = useMemo(() => {
+    return dietLogs.filter(entry => isWithinRange(entry.logDate, vetBriefRangeDays));
+  }, [dietLogs, vetBriefRangeDays]);
+  const recentSymptoms = useMemo(() => {
+    return [...rangeSymptoms]
+      .sort((a, b) => new Date(b.occurredAt).getTime() - new Date(a.occurredAt).getTime())
+      .slice(0, 4);
+  }, [rangeSymptoms]);
+  const recentMedicalEvents = useMemo(() => {
+    return [...rangeMedicalEvents]
+      .sort((a, b) => {
+        const aTime = a.dateAdministered ? new Date(a.dateAdministered).getTime() : 0;
+        const bTime = b.dateAdministered ? new Date(b.dateAdministered).getTime() : 0;
+        return bTime - aTime;
+      })
+      .slice(0, 4);
+  }, [rangeMedicalEvents]);
+  const recentDietLogs = useMemo(() => {
+    return [...rangeDietLogs]
+      .sort((a, b) => new Date(b.logDate).getTime() - new Date(a.logDate).getTime())
+      .slice(0);
+  }, [rangeDietLogs]);
+  const recentCheckins = useMemo(() => rangeCheckins.slice(0, 4), [rangeCheckins]);
+  const latestCheckin = recentCheckins[0];
+  const latestWeight = latestCheckin ? safeValue(latestCheckin.weight) : '-';
+  const latestWeightDisplay = latestWeight === '-' ? '-' : `${latestWeight} kg`;
+  const latestDiet = latestCheckin ? safeValue(latestCheckin.dietType) : '-';
+  const latestActivity = latestCheckin ? safeValue(latestCheckin.activityLevel) : '-';
+  const latestCheckinDate = latestCheckin ? formatBriefDate(latestCheckin.date) : '-';
+  const lastSixCheckins = useMemo(() => rangeCheckins.slice(0), [rangeCheckins]);
+  const weightSeriesRange = useMemo(() => {
+    return [...rangeCheckins]
+      .map(entry => {
+        const value = toNumber(entry.weight);
+        return value === null ? null : { date: entry.date, weight: value };
+      })
+      .filter((entry): entry is { date: string; weight: number } => entry !== null)
+      .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+  }, [rangeCheckins]);
+  const weightTrend = useMemo(() => {
+    if (weightSeriesRange.length < 2) {
+      return {
+        startLabel: '-',
+        endLabel: '-',
+        deltaLabel: '-',
+        minLabel: '-',
+        maxLabel: '-'
+      };
+    }
+    const start = weightSeriesRange[0];
+    const end = weightSeriesRange[weightSeriesRange.length - 1];
+    const delta = end.weight - start.weight;
+    const deltaLabel = `${delta >= 0 ? '+' : ''}${delta.toFixed(1)} kg`;
+    const weights = weightSeriesRange.map(point => point.weight);
+    const min = Math.min(...weights);
+    const max = Math.max(...weights);
+    return {
+      startLabel: `${start.weight.toFixed(1)} kg on ${formatBriefDate(start.date)}`,
+      endLabel: `${end.weight.toFixed(1)} kg on ${formatBriefDate(end.date)}`,
+      deltaLabel,
+      minLabel: `${min.toFixed(1)} kg`,
+      maxLabel: `${max.toFixed(1)} kg`
+    };
+  }, [weightSeriesRange]);
+  const weightSparkline = useMemo(() => {
+    if (weightSeriesRange.length < 2) return null;
+    const width = 240;
+    const height = 60;
+    const padding = 6;
+    const weights = weightSeriesRange.map(point => point.weight);
+    const min = Math.min(...weights);
+    const max = Math.max(...weights);
+    const range = Math.max(max - min, 1);
+    const step = (width - padding * 2) / Math.max(weightSeriesRange.length - 1, 1);
+    const points = weightSeriesRange
+      .map((point, index) => {
+        const x = padding + index * step;
+        const normalized = (point.weight - min) / range;
+        const y = height - padding - normalized * (height - padding * 2);
+        return `${x},${y}`;
+      })
+      .join(' ');
+    return { points, min, max, width, height };
+  }, [weightSeriesRange]);
+  const checkinTimeline = useMemo(() => {
+    if (!lastSixCheckins.length) return [`No check-ins logged in ${vetBriefRangeSentence}.`];
+    return lastSixCheckins.map((entry, index) => {
+      const weight = toNumber(entry.weight);
+      const prior = lastSixCheckins[index + 1];
+      const priorWeight = prior ? toNumber(prior.weight) : null;
+      const delta =
+        weight !== null && priorWeight !== null ? `${weight - priorWeight >= 0 ? '+' : ''}${(weight - priorWeight).toFixed(1)} kg` : '-';
+      const weightLabel = weight !== null ? `${weight.toFixed(1)} kg` : '-';
+      const dietLabel = safeValue(entry.dietType);
+      const activityLabel = safeValue(entry.activityLevel);
+      return `${formatBriefDate(entry.date)} | Weight ${weightLabel} (${delta}) | Diet ${dietLabel} | Activity ${activityLabel}`;
+    });
+  }, [lastSixCheckins, vetBriefRangeSentence]);
+  const checkinRows = useMemo(() => {
+    if (!lastSixCheckins.length) return [];
+    return lastSixCheckins.map((entry, index) => {
+      const weight = toNumber(entry.weight);
+      const prior = lastSixCheckins[index + 1];
+      const priorWeight = prior ? toNumber(prior.weight) : null;
+      const delta =
+        weight !== null && priorWeight !== null ? `${weight - priorWeight >= 0 ? '+' : ''}${(weight - priorWeight).toFixed(1)} kg` : '-';
+      return {
+        date: formatBriefDate(entry.date),
+        weight: weight !== null ? `${weight.toFixed(1)} kg` : '-',
+        delta,
+        diet: safeValue(entry.dietType),
+        activity: safeValue(entry.activityLevel)
+      };
+    });
+  }, [lastSixCheckins]);
+  const dietLogRows = useMemo(() => {
+    if (!recentDietLogs.length) return [];
+    return recentDietLogs.map(entry => ({
+      date: formatBriefDate(entry.logDate),
+      meal: safeValue(entry.mealType),
+      diet: safeValue(entry.dietType),
+      food: safeValue(entry.actualFood)
+    }));
+  }, [recentDietLogs]);
+  const petNameLabel = safeValue(user.pet?.name);
+  const petBreedLabel = safeValue(user.pet?.breed);
+  const petAgeLabel = safeValue(user.pet?.age);
+  const petGenderLabel = safeValue(user.pet?.gender);
+  const petWeightLabel = safeValue(user.pet?.weight);
+  const petWeightDisplay = petWeightLabel === '-' ? '-' : `${petWeightLabel} kg`;
+  const petCityLabel = safeValue(user.pet?.city);
+  const petVaccinationLabel = safeValue(user.pet?.vaccinationStatus);
+  const petLastVaccineLabel = formatBriefDate(user.pet?.lastVaccineDate);
+  const petLastVetVisitLabel = formatBriefDate(user.pet?.lastVetVisitDate);
+  const petSpayStatusLabel = safeValue(user.pet?.spayNeuterStatus);
+  const petDietTypeLabel = safeValue(user.pet?.dietType);
+  const petFeedingScheduleLabel = safeValue(user.pet?.feedingSchedule);
+  const petFoodBrandLabel = safeValue(user.pet?.foodBrand);
+  const petActivityBaselineLabel = safeValue(user.pet?.activityBaseline);
+  const petHousingLabel = safeValue(user.pet?.housingType);
+  const petWalkSurfaceLabel = safeValue(user.pet?.walkSurface);
+  const petParkAccessLabel = safeValue(user.pet?.parkAccess);
+  const petConditionsLabel = safeValue(listToCsv(user.pet?.conditions));
+  const petMedicationsLabel = safeValue(listToCsv(user.pet?.medications));
+  const petAllergiesLabel = safeValue(listToCsv(user.pet?.allergies));
+  const primaryVetLabel = [user.pet?.primaryVetName, user.pet?.primaryVetPhone ? `(${user.pet.primaryVetPhone})` : '']
+    .filter(Boolean)
+    .join(' ') || '-';
+  const emergencyContactLabel = [user.pet?.emergencyContactName, user.pet?.emergencyContactPhone ? `(${user.pet.emergencyContactPhone})` : '']
+    .filter(Boolean)
+    .join(' ') || '-';
+  const vetBriefText = useMemo(() => {
+    const pet = user.pet;
+    if (!pet) return 'No pet profile on file.';
+    const primaryVetLine = [pet.primaryVetName, pet.primaryVetPhone ? `(${pet.primaryVetPhone})` : '']
+      .filter(Boolean)
+      .join(' ');
+    const emergencyLine = [pet.emergencyContactName, pet.emergencyContactPhone ? `(${pet.emergencyContactPhone})` : '']
+      .filter(Boolean)
+      .join(' ');
+    const triageLine = activeTriage
+      ? `${activeTriage.requestType} | ${activeTriageOutcomeLabel} | ${formatBriefDate(activeTriage.createdAt)}`
+      : '-';
+    const triageStepsSummary = hasActiveTriage && activeTriageGuidance.steps.length ? activeTriageGuidance.steps.join('; ') : '-';
+    const triageRedFlagsSummary = hasActiveTriage && activeTriageGuidance.redFlags.length ? activeTriageGuidance.redFlags.join('; ') : '-';
+    const triageSignalSummary = hasActiveTriage ? activeTriageTopic.label : '-';
+    const symptomSummary = recentSymptoms.length
+      ? recentSymptoms.map(item => `${item.symptomType} (sev ${item.severity}/5) ${formatBriefDate(item.occurredAt)}`).join('; ')
+      : '-';
+    const medicalSummary = recentMedicalEvents.length
+      ? recentMedicalEvents
+          .map(item => `${item.eventType} ${formatBriefDate(item.dateAdministered)}`)
+          .join('; ')
+      : '-';
+    const checkinSummary = latestCheckin
+      ? `Latest check-in ${formatBriefDate(latestCheckin.date)} | Weight ${latestWeightDisplay} | Diet ${latestDiet} | Activity ${latestActivity}`
+      : `No check-ins logged in ${vetBriefRangeSentence}.`;
+    const nutritionSummary = [
+      `Diet type: ${petDietTypeLabel}`,
+      `Feeding schedule: ${petFeedingScheduleLabel}`,
+      `Food brand: ${petFoodBrandLabel}`,
+      `Activity baseline: ${petActivityBaselineLabel}`,
+      `Housing: ${petHousingLabel}`,
+      `Walk surface: ${petWalkSurfaceLabel}`,
+      `Park access: ${petParkAccessLabel}`
+    ].join(' | ');
+    const checkinTimelineSummary = checkinTimeline.length ? checkinTimeline.join('\n') : '-';
+    const dietLogSummary = dietLogRows.length
+      ? dietLogRows.map(row => `${row.date} | ${row.meal} | ${row.diet} | ${row.food}`).join('\n')
+      : '-';
+    const lines = [
+      `Vet Brief for ${safeValue(pet.name)}`,
+      `Data range: ${vetBriefRangeLabel}`,
+      `Pet: ${safeValue(pet.name)} | ${safeValue(pet.breed)} | ${safeValue(pet.age)} | ${safeValue(pet.gender)}`,
+      `Weight: ${petWeightDisplay} | City: ${safeValue(pet.city)}`,
+      `Spay/Neuter: ${petSpayStatusLabel}`,
+      `Vaccination: ${safeValue(pet.vaccinationStatus)} | Last vaccine: ${formatBriefDate(pet.lastVaccineDate)}`,
+      `Conditions: ${safeValue(listToCsv(pet.conditions))}`,
+      `Medications: ${safeValue(listToCsv(pet.medications))}`,
+      `Allergies: ${safeValue(listToCsv(pet.allergies))}`,
+      `Last vet visit: ${formatBriefDate(pet.lastVetVisitDate)}`,
+      `Primary vet: ${primaryVetLine || '-'}`,
+      `Emergency contact: ${emergencyLine || '-'}`,
+      `Nutrition & routine: ${nutritionSummary}`,
+      `Weight trend (${vetBriefRangeLowerLabel}): Start ${weightTrend.startLabel} | End ${weightTrend.endLabel} | Delta ${weightTrend.deltaLabel} | Min ${weightTrend.minLabel} | Max ${weightTrend.maxLabel}`,
+      `Latest triage: ${triageLine}`,
+      `Signal: ${triageSignalSummary}`,
+      `Concern: ${safeValue(activeTriage?.concern)}`,
+      `Notes: ${safeValue(activeTriage?.notes)}`,
+      `Onset: ${safeValue(activeTriage?.preferredTime)}`,
+      `Next steps: ${triageStepsSummary}`,
+      `Red flags: ${triageRedFlagsSummary}`,
+      `Recent symptoms: ${symptomSummary}`,
+      `Medical events: ${medicalSummary}`,
+      `Recent care logs: ${checkinSummary}`,
+      `Check-in timeline (${vetBriefRangeLowerLabel}):`,
+      checkinTimelineSummary,
+      `Diet log (${vetBriefRangeLowerLabel}):`,
+      dietLogSummary
+    ];
+    return lines.join('\n');
+  }, [
+    user.pet,
+    activeTriage,
+    activeTriageOutcomeLabel,
+    activeTriageGuidance,
+    activeTriageTopic,
+    hasActiveTriage,
+    recentSymptoms,
+    recentMedicalEvents,
+    latestCheckin,
+    latestWeightDisplay,
+    latestDiet,
+    latestActivity,
+    petWeightDisplay,
+    petDietTypeLabel,
+    petFeedingScheduleLabel,
+    petFoodBrandLabel,
+    petActivityBaselineLabel,
+    petHousingLabel,
+    petWalkSurfaceLabel,
+    petParkAccessLabel,
+    petSpayStatusLabel,
+    vetBriefRangeLabel,
+    vetBriefRangeLowerLabel,
+    vetBriefRangeSentence,
+    weightTrend,
+    checkinTimeline,
+    dietLogRows
+  ]);
+  const vetBriefHtml = useMemo(() => {
+    const pet = user.pet;
+    if (!pet) {
+      return '<p>No pet profile on file.</p>';
+    }
+    const row = (cells: string[]) =>
+      `<tr>${cells.map(cell => `<td>${escapeHtml(cell)}</td>`).join('')}</tr>`;
+    const checkinRowsHtml = checkinRows.length
+      ? checkinRows.map(entry => row([entry.date, entry.weight, entry.delta, entry.diet, entry.activity])).join('')
+      : row([`No entries in ${vetBriefRangeSentence}.`, '-', '-', '-', '-']);
+    const dietRowsHtml = dietLogRows.length
+      ? dietLogRows.map(entry => row([entry.date, entry.meal, entry.diet, entry.food])).join('')
+      : row([`No entries in ${vetBriefRangeSentence}.`, '-', '-', '-']);
+    const symptomRowsHtml = recentSymptoms.length
+      ? recentSymptoms.map(entry => row([entry.symptomType, `Sev ${entry.severity}/5`, formatBriefDate(entry.occurredAt)])).join('')
+      : row([`No entries in ${vetBriefRangeSentence}.`, '-', '-']);
+    const medicalRowsHtml = recentMedicalEvents.length
+      ? recentMedicalEvents.map(entry => row([entry.eventType, formatBriefDate(entry.dateAdministered)])).join('')
+      : row([`No entries in ${vetBriefRangeSentence}.`, '-']);
+    const triageStepsHtml = hasActiveTriage && activeTriageGuidance.steps.length ? activeTriageGuidance.steps.join(' | ') : '-';
+    const triageRedFlagsHtml = hasActiveTriage && activeTriageGuidance.redFlags.length ? activeTriageGuidance.redFlags.join(' | ') : '-';
+    const triageToneClass =
+      !hasActiveTriage
+        ? 'pill-monitor'
+        : activeTriageGuidance.tone === 'urgent'
+        ? 'pill-urgent'
+        : activeTriageGuidance.tone === 'soon'
+        ? 'pill-soon'
+        : 'pill-monitor';
+    const triageOutcomeText = hasActiveTriage ? activeTriageOutcomeLabel : 'No triage yet';
+    const triageSignalText = hasActiveTriage ? activeTriageTopic.label : 'Not started';
+    const triageConcernText = hasActiveTriage ? safeValue(activeTriage?.concern) : 'Run a triage check to generate guidance.';
+    const weightSparkHtml = weightSparkline
+      ? `<svg viewBox="0 0 ${weightSparkline.width} ${weightSparkline.height}" preserveAspectRatio="none">
+          <polyline points="${weightSparkline.points}" fill="none" stroke="#A25A20" stroke-width="3" />
+        </svg>
+        <div class="spark-labels"><span>${weightSparkline.min.toFixed(1)} kg</span><span>${weightSparkline.max.toFixed(1)} kg</span></div>`
+      : '<div class="spark-empty">Log two weights to view the trend line.</div>';
+    return `
+      <section class="hero">
+        <div class="card">
+          <p class="eyebrow">Pet Snapshot</p>
+          <h2>${escapeHtml(petNameLabel)}</h2>
+          <p class="muted">${escapeHtml(`${petBreedLabel} • ${petAgeLabel} • ${petGenderLabel}`)}</p>
+          <div class="chip-row">
+            <span class="chip">Weight ${escapeHtml(petWeightDisplay)}</span>
+            <span class="chip">City ${escapeHtml(petCityLabel)}</span>
+          </div>
+        </div>
+        <div class="card">
+          <p class="eyebrow">Triage Signal</p>
+          <div class="pill ${triageToneClass}">${escapeHtml(triageOutcomeText)}</div>
+          <p class="muted">Signal: ${escapeHtml(triageSignalText)}</p>
+          <p class="muted">Concern: ${escapeHtml(triageConcernText)}</p>
+        </div>
+      </section>
+      <section>
+        <h2>Report Range</h2>
+        <table>
+          <tbody>
+            ${row(['Data range', vetBriefRangeLabel])}
+          </tbody>
+        </table>
+      </section>
+      <section>
+        <h2>Pet Overview</h2>
+        <table>
+          <tbody>
+            ${row(['Name', petNameLabel])}
+            ${row(['Breed', petBreedLabel])}
+            ${row(['Age', petAgeLabel])}
+            ${row(['Gender', petGenderLabel])}
+            ${row(['Weight', petWeightDisplay])}
+            ${row(['City', petCityLabel])}
+            ${row(['Spay/Neuter', petSpayStatusLabel])}
+            ${row(['Vaccination', petVaccinationLabel])}
+            ${row(['Last vaccine', petLastVaccineLabel])}
+            ${row(['Last vet visit', petLastVetVisitLabel])}
+          </tbody>
+        </table>
+      </section>
+      <section>
+        <h2>Known History</h2>
+        <table>
+          <tbody>
+            ${row(['Conditions', petConditionsLabel])}
+            ${row(['Medications', petMedicationsLabel])}
+            ${row(['Allergies', petAllergiesLabel])}
+          </tbody>
+        </table>
+      </section>
+      <section>
+        <h2>Nutrition and Routine</h2>
+        <table>
+          <tbody>
+            ${row(['Diet type', petDietTypeLabel])}
+            ${row(['Feeding schedule', petFeedingScheduleLabel])}
+            ${row(['Food brand', petFoodBrandLabel])}
+            ${row(['Activity baseline', petActivityBaselineLabel])}
+            ${row(['Housing', petHousingLabel])}
+            ${row(['Walk surface', petWalkSurfaceLabel])}
+            ${row(['Park access', petParkAccessLabel])}
+          </tbody>
+        </table>
+      </section>
+      <section>
+        <h2>Triage Summary</h2>
+        <table>
+          <tbody>
+            ${row(['Type', activeTriage?.requestType || '-'])}
+            ${row(['Outcome', activeTriageOutcomeLabel])}
+            ${row(['Urgency', activeTriage?.urgency || '-'])}
+            ${row(['Date', formatBriefDate(activeTriage?.createdAt)])}
+            ${row(['Signal', triageSignalText])}
+            ${row(['Onset', safeValue(activeTriage?.preferredTime)])}
+            ${row(['Concern', safeValue(activeTriage?.concern)])}
+            ${row(['Notes', safeValue(activeTriage?.notes)])}
+            ${row(['Next steps', triageStepsHtml])}
+            ${row(['Red flags', triageRedFlagsHtml])}
+          </tbody>
+        </table>
+      </section>
+      <section>
+        <h2>Weight Trend (${vetBriefRangeLabel})</h2>
+        <table>
+          <tbody>
+            ${row(['Start', weightTrend.startLabel])}
+            ${row(['End', weightTrend.endLabel])}
+            ${row(['Delta', weightTrend.deltaLabel])}
+            ${row(['Min', weightTrend.minLabel])}
+            ${row(['Max', weightTrend.maxLabel])}
+          </tbody>
+        </table>
+        <div class="sparkline">
+          ${weightSparkHtml}
+        </div>
+      </section>
+      <section>
+        <h2>Check-in Timeline (${vetBriefRangeLabel})</h2>
+        <table>
+          <thead>
+            <tr>
+              <th>Date</th>
+              <th>Weight</th>
+              <th>Delta</th>
+              <th>Diet</th>
+              <th>Activity</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${checkinRowsHtml}
+          </tbody>
+        </table>
+      </section>
+      <section>
+        <h2>Diet Log (${vetBriefRangeLabel})</h2>
+        <table>
+          <thead>
+            <tr>
+              <th>Date</th>
+              <th>Meal</th>
+              <th>Diet</th>
+              <th>Food</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${dietRowsHtml}
+          </tbody>
+        </table>
+      </section>
+      <section>
+        <h2>Recent Symptoms</h2>
+        <table>
+          <thead>
+            <tr>
+              <th>Symptom</th>
+              <th>Severity</th>
+              <th>Date</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${symptomRowsHtml}
+          </tbody>
+        </table>
+      </section>
+      <section>
+        <h2>Medical Events</h2>
+        <table>
+          <thead>
+            <tr>
+              <th>Event</th>
+              <th>Date</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${medicalRowsHtml}
+          </tbody>
+        </table>
+      </section>
+      <section>
+        <h2>Vet Contacts</h2>
+        <table>
+          <tbody>
+            ${row(['Primary vet', primaryVetLabel])}
+            ${row(['Emergency contact', emergencyContactLabel])}
+          </tbody>
+        </table>
+      </section>
+      <p class="note">Not a diagnosis. Use this brief to speed up your vet visit.</p>
+    `;
+  }, [
+    user.pet,
+    petNameLabel,
+    petBreedLabel,
+    petAgeLabel,
+    petGenderLabel,
+    petWeightDisplay,
+    petCityLabel,
+    petSpayStatusLabel,
+    petVaccinationLabel,
+    petLastVaccineLabel,
+    petLastVetVisitLabel,
+    petConditionsLabel,
+    petMedicationsLabel,
+    petAllergiesLabel,
+    petDietTypeLabel,
+    petFeedingScheduleLabel,
+    petFoodBrandLabel,
+    petActivityBaselineLabel,
+    petHousingLabel,
+    petWalkSurfaceLabel,
+    petParkAccessLabel,
+    activeTriage,
+    activeTriageOutcomeLabel,
+    activeTriageGuidance,
+    activeTriageTopic,
+    hasActiveTriage,
+    vetBriefRangeLabel,
+    vetBriefRangeLowerLabel,
+    vetBriefRangeSentence,
+    weightTrend,
+    weightSparkline,
+    checkinRows,
+    dietLogRows,
+    recentSymptoms,
+    recentMedicalEvents,
+    primaryVetLabel,
+    emergencyContactLabel
+  ]);
 
   const compareActivity = (value?: string) => {
     const map: Record<string, number> = { Low: 1, Moderate: 2, High: 3 };
@@ -1871,20 +2950,6 @@ const Dashboard: React.FC<Props> = ({ user, setUser, onUpgrade, onLogout }) => {
     persistReminders(user.pet, next);
   };
 
-  const handleGenerateArt = async () => {
-    if (!studioPrompt) return;
-    if (!deductCredit('studio')) return;
-    setIsProcessing(true);
-    setLoadingMsg("Creating art...");
-    try {
-      const url = await generatePetArt(studioPrompt, "1K");
-      setGeneratedArt(url);
-    } finally {
-      setIsProcessing(false);
-      setLoadingMsg("");
-    }
-  };
-
   const breedForumPosts = FORUM_MOCK.filter(p => p.breed === user.pet?.breed || p.breed === "Any");
 
   const customGames = useMemo(() => {
@@ -2055,6 +3120,52 @@ const Dashboard: React.FC<Props> = ({ user, setUser, onUpgrade, onLogout }) => {
                       className={`h-2 w-2 rounded-full transition-all ${index === briefIndex ? 'bg-brand-500' : 'bg-white/30'}`}
                     />
                   ))}
+                </div>
+              </div>
+
+              <div className="bg-white p-10 rounded-[4rem] border border-brand-50 shadow-sm space-y-6">
+                <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+                  <div>
+                    <h3 className="text-2xl font-display font-black text-brand-900">2-Minute Triage</h3>
+                    <p className="text-brand-800/40 text-sm font-medium">Emergency vs wait, plus a vet-ready brief.</p>
+                  </div>
+                  <button
+                    onClick={openTriageModal}
+                    className="bg-brand-900 text-white px-5 py-2 rounded-full text-[10px] font-black uppercase tracking-widest shadow-lg hover:bg-brand-500 transition-all"
+                  >
+                    Start triage
+                  </button>
+                </div>
+                <div className="grid sm:grid-cols-3 gap-4">
+                  <div className="bg-brand-50/60 p-4 rounded-2xl border border-brand-100">
+                    <p className="text-[9px] font-black uppercase tracking-widest text-brand-400">Latest</p>
+                    <p className="text-lg font-display font-black text-brand-900">{latestTriageDate}</p>
+                  </div>
+                  <div className="bg-brand-50/60 p-4 rounded-2xl border border-brand-100">
+                    <p className="text-[9px] font-black uppercase tracking-widest text-brand-400">Outcome</p>
+                    <p className="text-lg font-display font-black text-brand-900">{latestTriageOutcomeLabel}</p>
+                  </div>
+                  <div className="bg-brand-50/60 p-4 rounded-2xl border border-brand-100">
+                    <p className="text-[9px] font-black uppercase tracking-widest text-brand-400">Vet brief</p>
+                    <p className="text-lg font-display font-black text-brand-900">{latestCareRequest ? 'Drafted' : 'Not started'}</p>
+                  </div>
+                </div>
+                <div className="flex flex-wrap gap-3">
+                  <button
+                    onClick={() => {
+                      setSelectedTriage(latestCareRequest);
+                      setShowVetBrief(true);
+                    }}
+                    className="text-[10px] font-black uppercase tracking-widest text-brand-500 underline underline-offset-4"
+                  >
+                    Open vet brief
+                  </button>
+                  <button
+                    onClick={openTriageModal}
+                    className="text-[10px] font-black uppercase tracking-widest text-brand-500 underline underline-offset-4"
+                  >
+                    Add symptoms
+                  </button>
                 </div>
               </div>
 
@@ -2617,24 +3728,125 @@ const Dashboard: React.FC<Props> = ({ user, setUser, onUpgrade, onLogout }) => {
           </div>
         )}
 
-        {/* MAGIC STUDIO */}
-        {activeTab === 'studio' && (
-          <div className="space-y-12 animate-reveal">
-            <h2 className="text-5xl font-display font-black text-brand-900 leading-none">Magic Studio</h2>
-            <div className="bg-white p-12 rounded-[4rem] shadow-sm border border-brand-50 space-y-10">
-              <textarea 
-                placeholder={`e.g., A cinematic 4K photo of ${user.pet?.name} in a royal palace...`} 
-                className="w-full bg-brand-50 p-10 rounded-[3rem] outline-none border-4 border-transparent focus:border-brand-500/20 transition-all text-xl font-medium h-48 resize-none shadow-inner" 
-                value={studioPrompt} onChange={e => setStudioPrompt(e.target.value)} 
-              />
-              <button onClick={handleGenerateArt} className="w-full bg-brand-900 text-white py-8 rounded-[3rem] font-black text-2xl shadow-2xl hover:bg-brand-500 transition-all active:scale-95">Render Artwork ✨</button>
+        {/* TRIAGE */}
+        {activeTab === 'triage' && (
+          <div className="space-y-12 animate-reveal pb-20">
+            <div className="space-y-2">
+              <h2 className="text-5xl font-display font-black text-brand-900 leading-none">Triage + Vet Brief</h2>
+              <p className="text-brand-800/40 text-lg font-medium italic">Emergency vs wait in 2 minutes, plus a structured brief.</p>
             </div>
-            {generatedArt && (
-              <div className="animate-reveal p-10 bg-white rounded-[5.5rem] shadow-2xl border-[16px] border-brand-50 group">
-                <img src={generatedArt} className="w-full rounded-[4rem] transition-transform duration-700 group-hover:scale-105" alt="Creation" />
-                <button onClick={() => setGeneratedArt(null)} className="w-full py-6 text-brand-300 font-bold uppercase tracking-[0.5em] text-[10px] mt-8 hover:text-brand-900 transition-colors">Dismiss Piece</button>
+
+            <div className="bg-brand-900 p-10 rounded-[4rem] text-white shadow-2xl relative overflow-hidden group">
+              <div className="relative z-10 space-y-4 max-w-2xl">
+                <span className="bg-brand-500 px-3 py-1 rounded-full text-[9px] font-black uppercase tracking-widest">Primary Feature</span>
+                <h3 className="text-3xl font-display font-black tracking-tight">Start a triage check</h3>
+                <p className="text-white/80 text-base">
+                  Answer a few symptom questions and get a clear next step for your pet.
+                </p>
+                <div className="flex flex-wrap gap-3">
+                  <button
+                    onClick={openTriageModal}
+                    className="bg-white text-brand-900 px-6 py-3 rounded-full text-[10px] font-black uppercase tracking-widest shadow-lg hover:scale-[1.02] transition-all"
+                  >
+                    Start triage
+                  </button>
+                  <button
+                    onClick={() => {
+                      setSelectedTriage(latestCareRequest);
+                      setShowVetBrief(true);
+                    }}
+                    className="border border-white/40 text-white px-6 py-3 rounded-full text-[10px] font-black uppercase tracking-widest hover:bg-white/10 transition-all"
+                  >
+                    Open vet brief
+                  </button>
+                </div>
               </div>
-            )}
+              <div className="absolute -right-8 -bottom-10 text-[10rem] opacity-[0.08]">🩺</div>
+            </div>
+
+            <div className="grid md:grid-cols-3 gap-4">
+              {triageHighlights.map((item, index) => (
+                <div
+                  key={item.title}
+                  className="text-left bg-white border border-brand-50 rounded-[2.5rem] p-6 space-y-3 shadow-sm motion-section h-full flex flex-col"
+                  style={motionDelay(index)}
+                >
+                  <p className="text-lg font-display font-black text-brand-900">{item.title}</p>
+                  <p className="text-sm text-brand-800/60 font-medium">{item.desc}</p>
+                </div>
+              ))}
+            </div>
+
+            <div className="bg-white rounded-[4rem] border border-brand-50 p-8 shadow-sm space-y-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h3 className="text-2xl font-display font-black text-brand-900">Clear next step</h3>
+                  <p className="text-sm text-brand-800/60 font-medium">Based on the latest triage entry.</p>
+                </div>
+                <span className={`text-[9px] font-black uppercase tracking-widest border px-3 py-1 rounded-full ${triageToneClass}`}>
+                  {triageBadgeLabel}
+                </span>
+              </div>
+              <p className="text-[10px] font-black uppercase tracking-widest text-brand-400">
+                Signal: {hasActiveTriage ? activeTriageTopic.label : 'Not started'}
+              </p>
+              <p className="text-sm text-brand-800/70 font-medium">
+                {hasActiveTriage ? activeTriageGuidance.summary : 'Start a triage check to get a clear next step.'}
+              </p>
+              {hasActiveTriage && (
+                <div className="grid md:grid-cols-2 gap-4 text-[11px] text-brand-800/70 font-medium">
+                  <div className="space-y-2">
+                    <p className="text-[9px] font-black uppercase tracking-widest text-brand-400">Do this now</p>
+                    <ul className="list-disc list-inside space-y-1">
+                      {activeTriageGuidance.steps.map(step => (
+                        <li key={step}>{step}</li>
+                      ))}
+                    </ul>
+                  </div>
+                  <div className="space-y-2">
+                    <p className="text-[9px] font-black uppercase tracking-widest text-brand-400">Red flags</p>
+                    <ul className="list-disc list-inside space-y-1">
+                      {activeTriageGuidance.redFlags.map(flag => (
+                        <li key={flag}>{flag}</li>
+                      ))}
+                    </ul>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            <div className="bg-white rounded-[4rem] border border-brand-50 p-8 shadow-sm space-y-4">
+              <div className="flex items-center justify-between">
+                <h3 className="text-xl font-display font-black text-brand-900">Recent triage</h3>
+                <span className="text-[9px] font-black uppercase tracking-widest text-brand-400">{careRequests.length} sessions</span>
+              </div>
+              {careRequests.length ? (
+                <div className="space-y-3">
+                  {careRequests.slice(0, 4).map(request => (
+                    <button
+                      key={request.id}
+                      onClick={() => {
+                        setSelectedTriage(request);
+                        setShowVetBrief(true);
+                      }}
+                      className="w-full text-left bg-brand-50/60 border border-brand-100 rounded-2xl p-4 flex items-center justify-between hover:bg-brand-50 transition-colors"
+                    >
+                      <div>
+                        <p className="text-sm font-display font-black text-brand-900">{request.concern || request.requestType}</p>
+                        <p className="text-[10px] text-brand-400 font-bold uppercase tracking-widest">
+                          {getTriageOutcomeLabel(request)}
+                        </p>
+                      </div>
+                      <span className="text-[10px] font-bold uppercase tracking-widest text-brand-400">
+                        {request.id.startsWith('local-') ? 'Local draft' : request.createdAt ? new Date(request.createdAt).toLocaleDateString() : '—'}
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              ) : (
+                <p className="text-sm text-brand-800/60 font-medium">No triage sessions yet.</p>
+              )}
+            </div>
           </div>
         )}
 
@@ -2913,7 +4125,7 @@ const Dashboard: React.FC<Props> = ({ user, setUser, onUpgrade, onLogout }) => {
                           <div className="w-full h-full bg-white/60 border border-brand-100 rounded-full flex items-end overflow-hidden">
                             <span
                               className="w-full rounded-full bg-brand-500/80"
-                              style={{ height: `${Math.max(10, Math.round(day.completion))}%` }}
+                              style={{ height: `${Math.max(20, Math.round(day.completion))}%` }}
                             />
                           </div>
                           <span className="text-[8px] font-bold uppercase tracking-widest text-brand-400">{day.label}</span>
@@ -2937,7 +4149,7 @@ const Dashboard: React.FC<Props> = ({ user, setUser, onUpgrade, onLogout }) => {
                       onClick={() => setShowChecklist(prev => !prev)}
                       className="text-[9px] font-black uppercase tracking-widest text-brand-500"
                     >
-                      View Checklist →
+                      {showChecklist ? 'Hide Checklist' : 'View Checklist →'}
                     </button>
                   </div>
                   <div className="flex items-center justify-between text-[10px] font-bold uppercase tracking-widest text-brand-400">
@@ -2945,125 +4157,112 @@ const Dashboard: React.FC<Props> = ({ user, setUser, onUpgrade, onLogout }) => {
                     <span>Weekly: {weeklyCheckinStats.streak} weeks</span>
                   </div>
                   <div className="w-full h-4 bg-brand-100 rounded-full overflow-hidden">
-                    <div className="h-full bg-brand-900" style={{ width: `${checklistProgress}%` }} />
+                    <div className="h-full bg-brand-900 motion-progress" style={{ width: `${checklistProgress}%` }} />
                   </div>
                   <p className="text-xs text-brand-800/60 font-medium">{checklistCompletedCount}/{checklistIds.length} checks completed today.</p>
-                </div>
-              </div>
-
-              <div className="bg-white rounded-[4.5rem] border border-brand-50 p-8 md:p-12 space-y-6 shadow-sm">
-                <button
-                  onClick={() => setShowChecklist(prev => !prev)}
-                  className="w-full flex items-center justify-between text-left"
-                >
-                  <div>
-                    <h3 className="text-2xl font-display font-black text-brand-900">Daily + Weekly Checklist</h3>
-                    <p className="text-brand-800/40 text-sm font-medium">Track care tasks and keep streaks alive.</p>
-                  </div>
-                  <span className={`text-sm font-black text-brand-500 transition-transform ${showChecklist ? 'rotate-180' : ''}`}>⌄</span>
-                </button>
-                {showChecklist && (
-                  <>
-                    <div className="grid md:grid-cols-2 gap-6">
-                      <div className="space-y-3">
-                        <p className="text-[10px] font-black uppercase tracking-[0.3em] text-brand-400">Daily Checklist</p>
-                        <div className="space-y-2">
-                        {dailyChecklistItems.map(item => (
-                          <div key={item.id} className="flex items-center gap-3 text-sm text-brand-800 font-medium">
-                            <input
-                              type="checkbox"
-                              checked={!!checklistState[item.id]}
-                              onChange={() => handleChecklistToggle(item.id)}
-                              className="accent-brand-500 w-4 h-4"
-                            />
-                            <span className="flex-1">{item.label}</span>
-                            <button
-                              type="button"
-                              onClick={() => openChecklistEditor(item, 'daily')}
-                              className="w-6 h-6 rounded-full border border-brand-200 text-[10px] font-black text-brand-500"
-                              aria-label={`Edit ${item.label}`}
-                            >
-                              i
-                            </button>
+                  {showChecklist && (
+                    <div className="pt-4 border-t border-brand-50 space-y-6">
+                      <div className="grid md:grid-cols-2 gap-6">
+                        <div className="space-y-3">
+                          <p className="text-[10px] font-black uppercase tracking-[0.3em] text-brand-400">Daily Checklist</p>
+                          <div className="space-y-2">
+                            {dailyChecklistItems.map(item => (
+                              <div key={item.id} className="flex items-center gap-3 text-sm text-brand-800 font-medium">
+                                <input
+                                  type="checkbox"
+                                  checked={!!checklistState[item.id]}
+                                  onChange={() => handleChecklistToggle(item.id)}
+                                  className="accent-brand-500 w-4 h-4"
+                                />
+                                <span className="flex-1">{item.label}</span>
+                                <button
+                                  type="button"
+                                  onClick={() => openChecklistEditor(item, 'daily')}
+                                  className="w-6 h-6 rounded-full border border-brand-200 text-[10px] font-black text-brand-500"
+                                  aria-label={`Edit ${item.label}`}
+                                >
+                                  i
+                                </button>
+                              </div>
+                            ))}
+                            {!dailyChecklistItems.length && (
+                              <p className="text-sm text-brand-800/60 font-medium">Add a daily checklist item below.</p>
+                            )}
                           </div>
-                        ))}
-                          {!dailyChecklistItems.length && (
-                            <p className="text-sm text-brand-800/60 font-medium">Add a daily checklist item below.</p>
-                          )}
+                        </div>
+                        <div className="space-y-3">
+                          <p className="text-[10px] font-black uppercase tracking-[0.3em] text-brand-400">Weekly Checklist</p>
+                          <div className="space-y-2">
+                            {weeklyChecklistItems.map(item => (
+                              <div key={item.id} className="flex items-center gap-3 text-sm text-brand-800 font-medium">
+                                <input
+                                  type="checkbox"
+                                  checked={!!checklistState[item.id]}
+                                  onChange={() => handleChecklistToggle(item.id)}
+                                  className="accent-brand-500 w-4 h-4"
+                                />
+                                <span className="flex-1">{item.label}</span>
+                                <button
+                                  type="button"
+                                  onClick={() => openChecklistEditor(item, 'weekly')}
+                                  className="w-6 h-6 rounded-full border border-brand-200 text-[10px] font-black text-brand-500"
+                                  aria-label={`Edit ${item.label}`}
+                                >
+                                  i
+                                </button>
+                              </div>
+                            ))}
+                            {!weeklyChecklistItems.length && (
+                              <p className="text-sm text-brand-800/60 font-medium">Add a weekly checklist item below.</p>
+                            )}
+                          </div>
                         </div>
                       </div>
-                      <div className="space-y-3">
-                        <p className="text-[10px] font-black uppercase tracking-[0.3em] text-brand-400">Weekly Checklist</p>
-                        <div className="space-y-2">
-                        {weeklyChecklistItems.map(item => (
-                          <div key={item.id} className="flex items-center gap-3 text-sm text-brand-800 font-medium">
-                            <input
-                              type="checkbox"
-                              checked={!!checklistState[item.id]}
-                              onChange={() => handleChecklistToggle(item.id)}
-                              className="accent-brand-500 w-4 h-4"
-                            />
-                            <span className="flex-1">{item.label}</span>
-                            <button
-                              type="button"
-                              onClick={() => openChecklistEditor(item, 'weekly')}
-                              className="w-6 h-6 rounded-full border border-brand-200 text-[10px] font-black text-brand-500"
-                              aria-label={`Edit ${item.label}`}
-                            >
-                              i
-                            </button>
-                          </div>
-                        ))}
-                          {!weeklyChecklistItems.length && (
-                            <p className="text-sm text-brand-800/60 font-medium">Add a weekly checklist item below.</p>
-                          )}
-                        </div>
-                      </div>
-                    </div>
-                    <div className="bg-brand-50/60 border border-brand-100 rounded-[2.5rem] p-6 space-y-4">
-                      <p className="text-[10px] font-black uppercase tracking-[0.3em] text-brand-400">Add custom check</p>
-                      <div className="grid md:grid-cols-3 gap-3">
-                        <input
-                          className="bg-white border border-brand-100 rounded-2xl px-4 py-3 text-sm md:col-span-2"
-                          placeholder="e.g., Brush coat, Refill water"
-                          value={customChecklistDraft.label}
-                          onChange={(e) => setCustomChecklistDraft({ ...customChecklistDraft, label: e.target.value })}
-                        />
-                        <select
-                          className="bg-white border border-brand-100 rounded-2xl px-4 py-3 text-sm"
-                          value={customChecklistDraft.frequency}
-                          onChange={(e) => setCustomChecklistDraft({ ...customChecklistDraft, frequency: e.target.value as CustomChecklistItem['frequency'] })}
-                        >
-                          <option value="daily">Daily</option>
-                          <option value="weekly">Weekly</option>
-                        </select>
-                      </div>
-                      <div className="flex flex-wrap items-center gap-4">
-                        <label className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-widest text-brand-400">
+                      <div className="bg-brand-50/60 border border-brand-100 rounded-[2.5rem] p-6 space-y-4">
+                        <p className="text-[10px] font-black uppercase tracking-[0.3em] text-brand-400">Add custom check</p>
+                        <div className="grid md:grid-cols-3 gap-3">
                           <input
-                            type="checkbox"
-                            checked={customChecklistDraft.notifyEnabled}
-                            onChange={(e) => setCustomChecklistDraft({ ...customChecklistDraft, notifyEnabled: e.target.checked })}
-                            className="accent-brand-500"
+                            className="bg-white border border-brand-100 rounded-2xl px-4 py-3 text-sm md:col-span-2"
+                            placeholder="e.g., Brush coat, Refill water"
+                            value={customChecklistDraft.label}
+                            onChange={(e) => setCustomChecklistDraft({ ...customChecklistDraft, label: e.target.value })}
                           />
-                          Notify me
-                        </label>
-                        <input
-                          type="time"
-                          className="bg-white border border-brand-100 rounded-2xl px-4 py-2 text-sm"
-                          value={customChecklistDraft.remindTime}
-                          onChange={(e) => setCustomChecklistDraft({ ...customChecklistDraft, remindTime: e.target.value })}
-                        />
-                        <button
-                          onClick={handleAddCustomChecklist}
-                          className="bg-brand-900 text-white px-4 py-2 rounded-full text-[10px] font-black uppercase tracking-widest"
-                        >
-                          Add Check
-                        </button>
+                          <select
+                            className="bg-white border border-brand-100 rounded-2xl px-4 py-3 text-sm"
+                            value={customChecklistDraft.frequency}
+                            onChange={(e) => setCustomChecklistDraft({ ...customChecklistDraft, frequency: e.target.value as CustomChecklistItem['frequency'] })}
+                          >
+                            <option value="daily">Daily</option>
+                            <option value="weekly">Weekly</option>
+                          </select>
+                        </div>
+                        <div className="flex flex-wrap items-center gap-4">
+                          <label className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-widest text-brand-400">
+                            <input
+                              type="checkbox"
+                              checked={customChecklistDraft.notifyEnabled}
+                              onChange={(e) => setCustomChecklistDraft({ ...customChecklistDraft, notifyEnabled: e.target.checked })}
+                              className="accent-brand-500"
+                            />
+                            Notify me
+                          </label>
+                          <input
+                            type="time"
+                            className="bg-white border border-brand-100 rounded-2xl px-4 py-2 text-sm"
+                            value={customChecklistDraft.remindTime}
+                            onChange={(e) => setCustomChecklistDraft({ ...customChecklistDraft, remindTime: e.target.value })}
+                          />
+                          <button
+                            onClick={handleAddCustomChecklist}
+                            className="bg-brand-900 text-white px-4 py-2 rounded-full text-[10px] font-black uppercase tracking-widest"
+                          >
+                            Add Check
+                          </button>
+                        </div>
                       </div>
                     </div>
-                  </>
-                )}
+                  )}
+                </div>
               </div>
 
             {profileView === 'parent' ? (
@@ -3277,66 +4476,54 @@ const Dashboard: React.FC<Props> = ({ user, setUser, onUpgrade, onLogout }) => {
                 <div className="bg-white rounded-[4.5rem] border border-brand-50 p-10 space-y-6 shadow-sm">
                   <div className="flex items-center justify-between">
                     <div>
-                      <h3 className="text-2xl font-display font-black text-brand-900">Care Access</h3>
-                      <p className="text-sm text-brand-800/60 font-medium">Reach vets, emergency care, or share reports.</p>
+                      <h3 className="text-2xl font-display font-black text-brand-900">Triage & Care</h3>
+                      <p className="text-sm text-brand-800/60 font-medium">Get emergency vs wait and share a vet brief.</p>
                     </div>
                     <button
-                      onClick={() => setShowCareRequest(true)}
+                    onClick={openTriageModal}
                       className="bg-brand-900 text-white px-5 py-2 rounded-full text-[10px] font-black uppercase tracking-widest shadow-lg hover:bg-brand-500 transition-all"
                     >
-                      New Request
+                      Start triage
                     </button>
                   </div>
-                  <div className="grid md:grid-cols-2 gap-4">
-                    {[
-                      { title: 'Vet consult', desc: 'Talk to a vet for advice.', emoji: '🩺' },
-                      { title: 'Emergency help', desc: 'Urgent triage and support.', emoji: '🚨' },
-                      { title: 'Upload report', desc: 'Share lab reports or scans.', emoji: '📄' },
-                      { title: 'Care callback', desc: 'Request a follow-up call.', emoji: '📞' }
-                    ].map(card => (
-                        <button
-                          key={card.title}
-                          onClick={() => {
-                            setCareRequestDraft({
-                              ...careRequestDraft,
-                              type: card.title,
-                              concern: '',
-                              notes: '',
-                              preferredTime: '',
-                              phone: '',
-                              location: ''
-                            });
-                            setShowCareRequest(true);
-                          }}
-                        className="text-left bg-brand-50/70 border border-brand-100 rounded-[2rem] p-5 space-y-2 hover:border-brand-300 transition-all"
+                  <div className="grid md:grid-cols-3 gap-4">
+                    {triageHighlights.map((item, index) => (
+                      <div
+                        key={item.title}
+                        className="text-left bg-brand-50/70 border border-brand-100 rounded-[2rem] p-5 space-y-2 motion-section h-full flex flex-col"
+                        style={motionDelay(index)}
                       >
-                        <div className="w-10 h-10 rounded-full bg-white/80 border border-brand-100 flex items-center justify-center text-lg">
-                          {card.emoji}
-                        </div>
-                        <p className="text-sm font-display font-black text-brand-900">{card.title}</p>
-                        <p className="text-xs text-brand-800/60 font-medium">{card.desc}</p>
-                      </button>
+                        <p className="text-sm font-display font-black text-brand-900">{item.title}</p>
+                        <p className="text-xs text-brand-800/60 font-medium">{item.desc}</p>
+                      </div>
                     ))}
                   </div>
                   <div className="bg-brand-50/60 border border-brand-100 rounded-[2rem] p-5 space-y-3">
                     <div className="flex items-center justify-between">
-                      <p className="text-[10px] font-black uppercase tracking-[0.3em] text-brand-400">My requests</p>
+                      <p className="text-[10px] font-black uppercase tracking-[0.3em] text-brand-400">Recent triage</p>
                       <span className="text-[9px] font-black uppercase tracking-widest text-brand-500">{careRequests.length}</span>
                     </div>
                     {careRequests.length ? (
                       <div className="space-y-3">
                         {careRequests.slice(0, 3).map(request => (
-                          <div key={request.id} className="bg-white/70 border border-brand-100 rounded-2xl p-4 flex items-center justify-between">
+                          <button
+                            key={request.id}
+                            onClick={() => {
+                              setSelectedTriage(request);
+                              setShowVetBrief(true);
+                            }}
+                            className="w-full text-left bg-white/70 border border-brand-100 rounded-2xl p-4 flex items-center justify-between hover:bg-white transition-colors"
+                          >
                             <div>
-                              <p className="text-sm font-display font-black text-brand-900">{request.requestType}</p>
+                              <p className="text-sm font-display font-black text-brand-900">{request.concern || request.requestType}</p>
                               <p className="text-[10px] text-brand-400 font-bold uppercase tracking-widest">
-                                {request.status || 'open'}
+                                {getTriageOutcomeLabel(request)}
                               </p>
                             </div>
                             <span className="text-[10px] font-bold uppercase tracking-widest text-brand-400">
-                              {request.createdAt ? new Date(request.createdAt).toLocaleDateString() : '—'}
+                              {request.id.startsWith('local-') ? 'Local draft' : request.createdAt ? new Date(request.createdAt).toLocaleDateString() : '—'}
                             </span>
-                          </div>
+                          </button>
                         ))}
                       </div>
                     ) : (
@@ -3436,9 +4623,9 @@ const Dashboard: React.FC<Props> = ({ user, setUser, onUpgrade, onLogout }) => {
       <nav className="fixed bottom-10 left-6 right-6 h-24 bg-neutral-dark/95 backdrop-blur-3xl rounded-[3.5rem] shadow-[0_40px_100px_-15px_rgba(49,29,14,0.6)] flex items-center justify-around px-10 z-50 border border-white/10">
         {[
           { id: 'home' as const, label: 'Feed', icon: '🐾' },
+          { id: 'triage' as const, label: 'Triage', icon: '🩺' },
           { id: 'nutri' as const, label: 'Lens', icon: '🥗' },
           { id: 'play' as const, label: 'Play', icon: '🏃‍♂️' },
-          { id: 'studio' as const, label: 'Studio', icon: '✨' },
           { id: 'parent' as const, label: 'Parent', icon: '🦴' }
         ].map(tab => (
           <button key={tab.id} onClick={() => setActiveTab(tab.id)} className={`flex flex-col items-center gap-3 transition-all duration-700 ${activeTab === tab.id ? 'text-brand-500 -translate-y-5' : 'text-white hover:text-white/90'}`}>
@@ -3449,8 +4636,8 @@ const Dashboard: React.FC<Props> = ({ user, setUser, onUpgrade, onLogout }) => {
       </nav>
 
       {showPetProfileEditor && (
-        <div className="fixed inset-0 z-[130] bg-brand-900/50 backdrop-blur-sm flex items-center justify-center p-6">
-          <div className="bg-white rounded-[3rem] p-8 max-w-5xl w-full space-y-8 shadow-2xl max-h-[85vh] overflow-y-auto">
+        <div className="fixed inset-0 z-[130] bg-brand-900/50 backdrop-blur-sm flex items-center justify-center p-6 motion-backdrop">
+          <div className="bg-white rounded-[3rem] p-8 max-w-5xl w-full space-y-8 shadow-2xl max-h-[85vh] overflow-y-auto motion-modal">
             <div className="flex items-center justify-between">
               <div>
                 <h3 className="text-2xl font-display font-black text-brand-900">Edit Pet Profile</h3>
@@ -3731,6 +4918,78 @@ const Dashboard: React.FC<Props> = ({ user, setUser, onUpgrade, onLogout }) => {
               </div>
             </div>
 
+            <div className="grid md:grid-cols-3 gap-4">
+              <div className="space-y-2">
+                <label className="text-[10px] font-black uppercase tracking-[0.3em] text-brand-400">Conditions</label>
+                <input
+                  className="w-full bg-brand-50/60 border border-brand-100 rounded-2xl px-6 py-4 text-sm"
+                  placeholder="Conditions (comma separated)"
+                  value={petDraft.conditions}
+                  onChange={(e) => setPetDraft({ ...petDraft, conditions: e.target.value })}
+                />
+              </div>
+              <div className="space-y-2">
+                <label className="text-[10px] font-black uppercase tracking-[0.3em] text-brand-400">Medications</label>
+                <input
+                  className="w-full bg-brand-50/60 border border-brand-100 rounded-2xl px-6 py-4 text-sm"
+                  placeholder="Medications (comma separated)"
+                  value={petDraft.medications}
+                  onChange={(e) => setPetDraft({ ...petDraft, medications: e.target.value })}
+                />
+              </div>
+              <div className="space-y-2">
+                <label className="text-[10px] font-black uppercase tracking-[0.3em] text-brand-400">Last Vet Visit</label>
+                <input
+                  type="date"
+                  className="w-full bg-brand-50/60 border border-brand-100 rounded-2xl px-6 py-4 text-sm"
+                  value={petDraft.lastVetVisitDate}
+                  onChange={(e) => setPetDraft({ ...petDraft, lastVetVisitDate: e.target.value })}
+                />
+              </div>
+            </div>
+
+            <div className="grid md:grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <label className="text-[10px] font-black uppercase tracking-[0.3em] text-brand-400">Primary Vet Name</label>
+                <input
+                  className="w-full bg-brand-50/60 border border-brand-100 rounded-2xl px-6 py-4 text-sm"
+                  placeholder="Vet name"
+                  value={petDraft.primaryVetName}
+                  onChange={(e) => setPetDraft({ ...petDraft, primaryVetName: e.target.value })}
+                />
+              </div>
+              <div className="space-y-2">
+                <label className="text-[10px] font-black uppercase tracking-[0.3em] text-brand-400">Primary Vet Phone</label>
+                <input
+                  className="w-full bg-brand-50/60 border border-brand-100 rounded-2xl px-6 py-4 text-sm"
+                  placeholder="+91 98xxxxxx"
+                  value={petDraft.primaryVetPhone}
+                  onChange={(e) => setPetDraft({ ...petDraft, primaryVetPhone: e.target.value })}
+                />
+              </div>
+            </div>
+
+            <div className="grid md:grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <label className="text-[10px] font-black uppercase tracking-[0.3em] text-brand-400">Emergency Contact Name</label>
+                <input
+                  className="w-full bg-brand-50/60 border border-brand-100 rounded-2xl px-6 py-4 text-sm"
+                  placeholder="Contact name"
+                  value={petDraft.emergencyContactName}
+                  onChange={(e) => setPetDraft({ ...petDraft, emergencyContactName: e.target.value })}
+                />
+              </div>
+              <div className="space-y-2">
+                <label className="text-[10px] font-black uppercase tracking-[0.3em] text-brand-400">Emergency Contact Phone</label>
+                <input
+                  className="w-full bg-brand-50/60 border border-brand-100 rounded-2xl px-6 py-4 text-sm"
+                  placeholder="+91 98xxxxxx"
+                  value={petDraft.emergencyContactPhone}
+                  onChange={(e) => setPetDraft({ ...petDraft, emergencyContactPhone: e.target.value })}
+                />
+              </div>
+            </div>
+
             {petSaveState === 'error' && (
               <p className="text-sm text-red-500 font-bold">{petSaveError || 'Failed to update profile.'}</p>
             )}
@@ -3750,8 +5009,8 @@ const Dashboard: React.FC<Props> = ({ user, setUser, onUpgrade, onLogout }) => {
       )}
 
       {showPetQuickUpdate && (
-        <div className="fixed inset-0 z-[130] bg-brand-900/50 backdrop-blur-sm flex items-center justify-center p-6">
-          <div className="bg-white rounded-[3rem] p-8 max-w-2xl w-full space-y-8 shadow-2xl">
+        <div className="fixed inset-0 z-[130] bg-brand-900/50 backdrop-blur-sm flex items-center justify-center p-6 motion-backdrop">
+          <div className="bg-white rounded-[3rem] p-8 max-w-2xl w-full space-y-8 shadow-2xl max-h-[85vh] overflow-y-auto motion-modal">
             <div className="flex items-center justify-between">
               <div>
                 <h3 className="text-2xl font-display font-black text-brand-900">Quick Pet Update</h3>
@@ -3995,8 +5254,8 @@ const Dashboard: React.FC<Props> = ({ user, setUser, onUpgrade, onLogout }) => {
       )}
 
       {checklistEditor && (
-        <div className="fixed inset-0 z-[135] bg-brand-900/50 backdrop-blur-sm flex items-center justify-center p-6">
-          <div className="bg-white rounded-[3rem] p-8 max-w-lg w-full space-y-6 shadow-2xl">
+        <div className="fixed inset-0 z-[135] bg-brand-900/50 backdrop-blur-sm flex items-center justify-center p-6 motion-backdrop">
+          <div className="bg-white rounded-[3rem] p-8 max-w-lg w-full space-y-6 shadow-2xl max-h-[85vh] overflow-y-auto motion-modal">
             <div className="flex items-center justify-between">
               <div>
                 <h3 className="text-2xl font-display font-black text-brand-900">Edit Checklist Item</h3>
@@ -4047,162 +5306,416 @@ const Dashboard: React.FC<Props> = ({ user, setUser, onUpgrade, onLogout }) => {
         </div>
       )}
 
-      {showCareRequest && (
-        <div className="fixed inset-0 z-[135] bg-brand-900/50 backdrop-blur-sm flex items-center justify-center p-6">
-          <div className="bg-white rounded-[3rem] p-8 max-w-lg w-full space-y-6 shadow-2xl">
+      {showVetBrief && (
+        <div className="fixed inset-0 z-[135] bg-brand-900/50 backdrop-blur-sm flex items-center justify-center p-6 motion-backdrop">
+          <div className="bg-white rounded-[3rem] p-8 max-w-6xl w-full space-y-6 shadow-2xl max-h-[85vh] overflow-y-auto motion-modal">
             <div className="flex items-center justify-between">
               <div>
-                <h3 className="text-2xl font-display font-black text-brand-900">Care Request</h3>
-                <p className="text-[10px] font-bold uppercase tracking-[0.3em] text-brand-400">{careRequestDraft.type}</p>
+                <h3 className="text-2xl font-display font-black text-brand-900">Vet Brief</h3>
+                <p className="text-[10px] font-bold uppercase tracking-[0.3em] text-brand-400">Shareable intake summary</p>
+              </div>
+              <button onClick={() => setShowVetBrief(false)} className="text-[10px] font-black uppercase tracking-widest text-brand-500">Close</button>
+            </div>
+            <div className="flex flex-wrap gap-3">
+              <button
+                onClick={handleCopyVetBrief}
+                className="bg-brand-900 text-white px-5 py-2 rounded-full text-[10px] font-black uppercase tracking-widest shadow-lg hover:bg-brand-500 transition-all"
+              >
+                Copy brief
+              </button>
+              <button
+                onClick={handlePrintVetBrief}
+                className="bg-white border border-brand-100 text-brand-900 px-5 py-2 rounded-full text-[10px] font-black uppercase tracking-widest shadow-sm hover:bg-brand-50 transition-all"
+              >
+                Export PDF
+              </button>
+              <button
+                onClick={() => {
+                  setShowVetBrief(false);
+                  openTriageModal();
+                }}
+                className="text-[10px] font-black uppercase tracking-widest text-brand-500 underline underline-offset-4"
+              >
+                Add triage notes
+              </button>
+            </div>
+            <div className="grid gap-3 sm:flex sm:items-center sm:justify-between">
+              <span className="text-[10px] font-black uppercase tracking-[0.3em] text-brand-400">Report range</span>
+              <div className="grid grid-cols-2 gap-2 sm:flex sm:flex-wrap sm:gap-2">
+                {VET_BRIEF_RANGE_OPTIONS.map(days => {
+                  const isActive = vetBriefRangeDays === days;
+                  return (
+                    <button
+                      key={`report-range-${days}`}
+                      onClick={() => setVetBriefRangeDays(days)}
+                      className={`w-full px-4 py-2 rounded-full text-[10px] font-black uppercase tracking-widest border transition-all sm:w-auto ${
+                        isActive
+                          ? 'bg-brand-900 text-white border-brand-900 shadow-lg'
+                          : 'bg-white text-brand-600 border-brand-100 hover:border-brand-300'
+                      }`}
+                    >
+                      {days} days
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+            <p className="text-[10px] font-bold uppercase tracking-widest text-brand-400">
+              Showing logs from {vetBriefRangeSentence}.
+            </p>
+            <div className="grid lg:grid-cols-2 gap-5">
+              <div className="bg-brand-50/60 border border-brand-100 rounded-[2.5rem] p-6 space-y-3 motion-section" style={motionDelay(0)}>
+                <p className="text-[10px] font-black uppercase tracking-[0.3em] text-brand-400">Pet overview</p>
+                <div>
+                  <h4 className="text-xl font-display font-black text-brand-900">{petNameLabel}</h4>
+                  <p className="text-[11px] text-brand-800/60 font-medium">{petBreedLabel} | {petAgeLabel} | {petGenderLabel}</p>
+                </div>
+                <div className="text-[11px] text-brand-800/60 font-medium">
+                  Weight {petWeightDisplay} | City {petCityLabel}
+                </div>
+                <div className="space-y-1 text-[10px] font-bold uppercase tracking-widest text-brand-400">
+                  <p>Vaccination: {petVaccinationLabel}</p>
+                  <p>Last vaccine: {petLastVaccineLabel}</p>
+                  <p>Last vet visit: {petLastVetVisitLabel}</p>
+                  <p>Spay/neuter: {petSpayStatusLabel}</p>
+                </div>
+              </div>
+              <div className="bg-brand-50/60 border border-brand-100 rounded-[2.5rem] p-6 space-y-3 motion-section" style={motionDelay(1)}>
+                <p className="text-[10px] font-black uppercase tracking-[0.3em] text-brand-400">Known history</p>
+                <p className="text-[11px] text-brand-800/70 font-medium">Conditions: {petConditionsLabel}</p>
+                <p className="text-[11px] text-brand-800/70 font-medium">Medications: {petMedicationsLabel}</p>
+                <p className="text-[11px] text-brand-800/70 font-medium">Allergies: {petAllergiesLabel}</p>
+              </div>
+              <div className="bg-brand-50/60 border border-brand-100 rounded-[2.5rem] p-6 space-y-3 motion-section" style={motionDelay(2)}>
+                <p className="text-[10px] font-black uppercase tracking-[0.3em] text-brand-400">Nutrition & routine</p>
+                <p className="text-[11px] text-brand-800/70 font-medium">Diet type: {petDietTypeLabel}</p>
+                <p className="text-[11px] text-brand-800/70 font-medium">Feeding schedule: {petFeedingScheduleLabel}</p>
+                <p className="text-[11px] text-brand-800/70 font-medium">Food brand: {petFoodBrandLabel}</p>
+                <p className="text-[11px] text-brand-800/70 font-medium">Activity baseline: {petActivityBaselineLabel}</p>
+                <p className="text-[11px] text-brand-800/70 font-medium">Housing: {petHousingLabel}</p>
+                <p className="text-[11px] text-brand-800/70 font-medium">Walk surface: {petWalkSurfaceLabel}</p>
+                <p className="text-[11px] text-brand-800/70 font-medium">Park access: {petParkAccessLabel}</p>
+              </div>
+              <div className="bg-white border border-brand-100 rounded-[2.5rem] p-6 space-y-4 lg:col-span-2 motion-section" style={motionDelay(3)}>
+                <div className="flex items-center justify-between">
+                  <p className="text-[10px] font-black uppercase tracking-[0.3em] text-brand-400">Triage summary</p>
+                  <span className="text-[9px] font-bold uppercase tracking-widest text-brand-400">{formatBriefDate(activeTriage?.createdAt)}</span>
+                </div>
+                <div className="grid md:grid-cols-4 gap-3 text-sm text-brand-800/70 font-medium">
+                  <div>
+                    <p className="text-[10px] font-black uppercase tracking-widest text-brand-400">Type</p>
+                    <p>{activeTriage?.requestType || '-'}</p>
+                  </div>
+                  <div>
+                    <p className="text-[10px] font-black uppercase tracking-widest text-brand-400">Outcome</p>
+                    <p>{activeTriageOutcomeLabel}</p>
+                  </div>
+                  <div>
+                    <p className="text-[10px] font-black uppercase tracking-widest text-brand-400">Urgency</p>
+                    <p>{activeTriage?.urgency || '-'}</p>
+                  </div>
+                  <div>
+                    <p className="text-[10px] font-black uppercase tracking-widest text-brand-400">Signal</p>
+                    <p>{hasActiveTriage ? activeTriageTopic.label : '-'}</p>
+                  </div>
+                </div>
+                <div className="grid md:grid-cols-2 gap-3 text-xs text-brand-800/60 font-medium">
+                  <div>
+                    <p className="text-[10px] font-black uppercase tracking-widest text-brand-400">Concern</p>
+                    <p>{safeValue(activeTriage?.concern)}</p>
+                  </div>
+                  <div>
+                    <p className="text-[10px] font-black uppercase tracking-widest text-brand-400">Notes</p>
+                    <p>{safeValue(activeTriage?.notes)}</p>
+                  </div>
+                  <div>
+                    <p className="text-[10px] font-black uppercase tracking-widest text-brand-400">Onset</p>
+                    <p>{safeValue(activeTriage?.preferredTime)}</p>
+                  </div>
+                </div>
+              </div>
+              <div className="bg-brand-50/60 border border-brand-100 rounded-[2.5rem] p-6 space-y-4 lg:col-span-2 motion-section" style={motionDelay(4)}>
+                <div className="flex items-center justify-between">
+                  <p className="text-[10px] font-black uppercase tracking-[0.3em] text-brand-400">Next steps</p>
+                  <span className={`text-[9px] font-black uppercase tracking-widest border px-3 py-1 rounded-full ${triageToneClass}`}>
+                    {triageBadgeLabel}
+                  </span>
+                </div>
+                {hasActiveTriage ? (
+                  <>
+                    <p className="text-sm text-brand-800/70 font-medium">{activeTriageGuidance.summary}</p>
+                    <div className="grid md:grid-cols-2 gap-4 text-[11px] text-brand-800/70 font-medium">
+                      <div className="space-y-2">
+                        <p className="text-[9px] font-black uppercase tracking-widest text-brand-400">Do this now</p>
+                        <ul className="space-y-1 list-disc list-inside">
+                          {activeTriageGuidance.steps.map(step => (
+                            <li key={step}>{step}</li>
+                          ))}
+                        </ul>
+                      </div>
+                      <div className="space-y-2">
+                        <p className="text-[9px] font-black uppercase tracking-widest text-brand-400">Red flags</p>
+                        <ul className="space-y-1 list-disc list-inside">
+                          {activeTriageGuidance.redFlags.map(flag => (
+                            <li key={flag}>{flag}</li>
+                          ))}
+                        </ul>
+                      </div>
+                    </div>
+                  </>
+                ) : (
+                  <p className="text-sm text-brand-800/60 font-medium">Start a triage check to get personalized next steps.</p>
+                )}
+              </div>
+              <div className="bg-brand-50/60 border border-brand-100 rounded-[2.5rem] p-6 space-y-3 motion-section" style={motionDelay(5)}>
+                <p className="text-[10px] font-black uppercase tracking-[0.3em] text-brand-400">Recent symptoms</p>
+                {recentSymptoms.length ? (
+                  <div className="space-y-2 text-[11px] text-brand-800/70 font-medium">
+                    {recentSymptoms.map(item => (
+                      <div key={item.id} className="flex items-center justify-between">
+                        <span>{item.symptomType}</span>
+                        <span className="text-[10px] font-bold uppercase tracking-widest text-brand-400">
+                          Sev {item.severity}/5 - {formatBriefDate(item.occurredAt)}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="text-sm text-brand-800/60 font-medium">No symptoms logged in {vetBriefRangeSentence}.</p>
+                )}
+              </div>
+              <div className="bg-brand-50/60 border border-brand-100 rounded-[2.5rem] p-6 space-y-3 motion-section" style={motionDelay(6)}>
+                <p className="text-[10px] font-black uppercase tracking-[0.3em] text-brand-400">Medical events</p>
+                {recentMedicalEvents.length ? (
+                  <div className="space-y-2 text-[11px] text-brand-800/70 font-medium">
+                    {recentMedicalEvents.map(item => (
+                      <div key={item.id} className="flex items-center justify-between">
+                        <span>{item.eventType}</span>
+                        <span className="text-[10px] font-bold uppercase tracking-widest text-brand-400">
+                          {formatBriefDate(item.dateAdministered)}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="text-sm text-brand-800/60 font-medium">No medical events logged in {vetBriefRangeSentence}.</p>
+                )}
+              </div>
+              <div className="bg-white border border-brand-100 rounded-[2.5rem] p-6 space-y-4 lg:col-span-2 motion-section" style={motionDelay(7)}>
+                <div className="flex items-center justify-between">
+                  <p className="text-[10px] font-black uppercase tracking-[0.3em] text-brand-400">Weight trend ({vetBriefRangeLowerLabel})</p>
+                  <span className="text-[9px] font-bold uppercase tracking-widest text-brand-400">{weightTrend.deltaLabel}</span>
+                </div>
+                <div className="grid md:grid-cols-2 gap-3 text-[11px] text-brand-800/70 font-medium">
+                  <div className="space-y-1">
+                    <p>Start: {weightTrend.startLabel}</p>
+                    <p>End: {weightTrend.endLabel}</p>
+                  </div>
+                  <div className="space-y-1">
+                    <p>Min: {weightTrend.minLabel}</p>
+                    <p>Max: {weightTrend.maxLabel}</p>
+                  </div>
+                </div>
+                {weightSparkline ? (
+                  <div className="bg-white/70 border border-brand-100 rounded-2xl p-3">
+                    <svg
+                      viewBox={`0 0 ${weightSparkline.width} ${weightSparkline.height}`}
+                      className="w-full h-14"
+                      preserveAspectRatio="none"
+                    >
+                      <polyline
+                        fill="none"
+                        stroke="#A25A20"
+                        strokeWidth="3"
+                        points={weightSparkline.points}
+                      />
+                    </svg>
+                    <div className="flex items-center justify-between text-[9px] font-bold uppercase tracking-widest text-brand-400">
+                      <span>{weightSparkline.min.toFixed(1)} kg</span>
+                      <span>{weightSparkline.max.toFixed(1)} kg</span>
+                    </div>
+                  </div>
+                ) : (
+                  <p className="text-sm text-brand-800/60 font-medium">Log two weights to view the trend line.</p>
+                )}
+              </div>
+              <div className="bg-brand-50/60 border border-brand-100 rounded-[2.5rem] p-6 space-y-4 lg:col-span-2 motion-section" style={motionDelay(8)}>
+                <p className="text-[10px] font-black uppercase tracking-[0.3em] text-brand-400">Recent care logs</p>
+                <div className="grid md:grid-cols-4 gap-3 text-sm text-brand-800/70 font-medium">
+                  <div className="bg-white/70 border border-brand-100 rounded-2xl p-3">
+                    <p className="text-[9px] font-black uppercase tracking-widest text-brand-400">Latest check-in</p>
+                    <p>{latestCheckinDate}</p>
+                  </div>
+                  <div className="bg-white/70 border border-brand-100 rounded-2xl p-3">
+                    <p className="text-[9px] font-black uppercase tracking-widest text-brand-400">Weight</p>
+                    <p>{latestWeightDisplay}</p>
+                  </div>
+                  <div className="bg-white/70 border border-brand-100 rounded-2xl p-3">
+                    <p className="text-[9px] font-black uppercase tracking-widest text-brand-400">Diet</p>
+                    <p>{latestDiet}</p>
+                  </div>
+                  <div className="bg-white/70 border border-brand-100 rounded-2xl p-3">
+                    <p className="text-[9px] font-black uppercase tracking-widest text-brand-400">Activity</p>
+                    <p>{latestActivity}</p>
+                  </div>
+                </div>
+              </div>
+              <div className="bg-brand-50/60 border border-brand-100 rounded-[2.5rem] p-6 space-y-3 lg:col-span-2 motion-section" style={motionDelay(9)}>
+                <p className="text-[10px] font-black uppercase tracking-[0.3em] text-brand-400">Check-in timeline ({vetBriefRangeLowerLabel})</p>
+                {checkinRows.length ? (
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-left text-[11px] text-brand-800/70 font-medium">
+                      <thead className="text-[9px] font-black uppercase tracking-widest text-brand-400">
+                        <tr>
+                          <th className="py-2 pr-3">Date</th>
+                          <th className="py-2 pr-3">Weight</th>
+                          <th className="py-2 pr-3">Delta</th>
+                          <th className="py-2 pr-3">Diet</th>
+                          <th className="py-2">Activity</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {checkinRows.map((row, index) => (
+                          <tr key={`checkin-row-${index}`} className="border-t border-brand-100/60">
+                            <td className="py-2 pr-3">{row.date}</td>
+                            <td className="py-2 pr-3">{row.weight}</td>
+                            <td className="py-2 pr-3">{row.delta}</td>
+                            <td className="py-2 pr-3">{row.diet}</td>
+                            <td className="py-2">{row.activity}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                ) : (
+                  <p className="text-sm text-brand-800/60 font-medium">No check-ins logged in {vetBriefRangeSentence}.</p>
+                )}
+              </div>
+              <div className="bg-brand-50/60 border border-brand-100 rounded-[2.5rem] p-6 space-y-3 lg:col-span-2 motion-section" style={motionDelay(10)}>
+                <p className="text-[10px] font-black uppercase tracking-[0.3em] text-brand-400">Diet log ({vetBriefRangeLowerLabel})</p>
+                {dietLogRows.length ? (
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-left text-[11px] text-brand-800/70 font-medium">
+                      <thead className="text-[9px] font-black uppercase tracking-widest text-brand-400">
+                        <tr>
+                          <th className="py-2 pr-3">Date</th>
+                          <th className="py-2 pr-3">Meal</th>
+                          <th className="py-2 pr-3">Diet</th>
+                          <th className="py-2">Food</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {dietLogRows.map((row, index) => (
+                          <tr key={`diet-row-${index}`} className="border-t border-brand-100/60">
+                            <td className="py-2 pr-3">{row.date}</td>
+                            <td className="py-2 pr-3">{row.meal}</td>
+                            <td className="py-2 pr-3">{row.diet}</td>
+                            <td className="py-2">{row.food}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                ) : (
+                  <p className="text-sm text-brand-800/60 font-medium">No diet logs in {vetBriefRangeSentence}.</p>
+                )}
+              </div>
+              <div className="bg-brand-50/60 border border-brand-100 rounded-[2.5rem] p-6 space-y-3 lg:col-span-2 motion-section" style={motionDelay(11)}>
+                <p className="text-[10px] font-black uppercase tracking-[0.3em] text-brand-400">Vet contacts</p>
+                <p className="text-[11px] text-brand-800/70 font-medium">Primary vet: {primaryVetLabel}</p>
+                <p className="text-[11px] text-brand-800/70 font-medium">Emergency contact: {emergencyContactLabel}</p>
+              </div>
+            </div>
+            <div className="bg-brand-900 text-white/80 rounded-[2rem] p-4 text-[10px] font-bold uppercase tracking-widest motion-section" style={motionDelay(12)}>
+              Not a diagnosis. Use this brief to speed up your vet visit.
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showCareRequest && (
+        <div className="fixed inset-0 z-[135] bg-brand-900/50 backdrop-blur-sm flex items-center justify-center p-6 motion-backdrop">
+          <div className="bg-white rounded-[3rem] p-8 max-w-lg w-full space-y-6 shadow-2xl max-h-[85vh] overflow-y-auto motion-modal">
+            <div className="flex items-center justify-between">
+              <div>
+                <h3 className="text-2xl font-display font-black text-brand-900">Triage Check</h3>
+                <p className="text-[10px] font-bold uppercase tracking-[0.3em] text-brand-400">Quick symptom intake</p>
               </div>
               <button onClick={() => setShowCareRequest(false)} className="text-[10px] font-black uppercase tracking-widest text-brand-500">Close</button>
             </div>
             <div className="space-y-3">
-              <label className="text-[10px] font-black uppercase tracking-[0.3em] text-brand-400">Request Type</label>
+              <label className="text-[10px] font-black uppercase tracking-[0.3em] text-brand-400">Primary concern</label>
+              <input
+                className="w-full bg-brand-50/60 border border-brand-100 rounded-2xl px-6 py-4 text-sm"
+                placeholder="Short summary (e.g., vomiting, limping)"
+                value={careRequestDraft.concern}
+                onChange={(e) => setCareRequestDraft({ ...careRequestDraft, concern: e.target.value })}
+              />
+            </div>
+            <div className="space-y-3">
+              <label className="text-[10px] font-black uppercase tracking-[0.3em] text-brand-400">When did it start?</label>
+              <input
+                type="text"
+                className="w-full bg-brand-50/60 border border-brand-100 rounded-2xl px-6 py-4 text-sm"
+                placeholder="e.g., Today 6pm, Yesterday morning"
+                value={careRequestDraft.preferredTime}
+                onChange={(e) => setCareRequestDraft({ ...careRequestDraft, preferredTime: e.target.value })}
+              />
+            </div>
+            <div className="space-y-3">
+              <label className="text-[10px] font-black uppercase tracking-[0.3em] text-brand-400">Symptoms + context</label>
+              <textarea
+                className="w-full bg-brand-50/60 border border-brand-100 rounded-2xl px-6 py-4 text-sm h-28 resize-none"
+                placeholder="Include appetite, behavior change, meds, or allergies"
+                value={careRequestDraft.notes}
+                onChange={(e) => setCareRequestDraft({ ...careRequestDraft, notes: e.target.value })}
+              />
+            </div>
+            <div className="space-y-3">
+              <label className="text-[10px] font-black uppercase tracking-[0.3em] text-brand-400">How urgent does this feel?</label>
               <select
                 className="w-full bg-brand-50/60 border border-brand-100 rounded-2xl px-6 py-4 text-sm"
-                value={careRequestDraft.type}
-                onChange={(e) => setCareRequestDraft({ ...careRequestDraft, type: e.target.value })}
+                value={careRequestDraft.urgency}
+                onChange={(e) => setCareRequestDraft({ ...careRequestDraft, urgency: e.target.value })}
               >
-                {['Vet consult', 'Emergency help', 'Upload report', 'Care callback'].map(option => (
+                {['Monitor', 'Visit soon', 'Emergency'].map(option => (
                   <option key={option}>{option}</option>
                 ))}
               </select>
+              <div className="bg-brand-50/60 border border-brand-100 rounded-2xl p-4 space-y-2">
+                <div className="flex items-center justify-between">
+                  <p className="text-[9px] font-black uppercase tracking-widest text-brand-400">Suggested next step</p>
+                  <span className={`text-[9px] font-black uppercase tracking-widest border px-3 py-1 rounded-full ${draftTriageToneClass}`}>
+                    {draftTriageGuidance.badge}
+                  </span>
+                </div>
+                <p className="text-[10px] font-black uppercase tracking-widest text-brand-400">
+                  Signal: {draftTriageTopic.label}
+                </p>
+                <p className="text-sm text-brand-800/70 font-medium">{draftTriageGuidance.summary}</p>
+                <ul className="text-[11px] text-brand-800/70 font-medium list-disc list-inside space-y-1">
+                  {draftTriageGuidance.steps.slice(0, 2).map(step => (
+                    <li key={step}>{step}</li>
+                  ))}
+                </ul>
+              </div>
             </div>
-            {careRequestDraft.type === 'Vet consult' && (
-              <>
-                <div className="space-y-3">
-                  <label className="text-[10px] font-black uppercase tracking-[0.3em] text-brand-400">Concern</label>
-                  <input
-                    className="w-full bg-brand-50/60 border border-brand-100 rounded-2xl px-6 py-4 text-sm"
-                    placeholder="Short summary (e.g., vomiting, limping)"
-                    value={careRequestDraft.concern}
-                    onChange={(e) => setCareRequestDraft({ ...careRequestDraft, concern: e.target.value })}
-                  />
-                </div>
-                <div className="space-y-3">
-                  <label className="text-[10px] font-black uppercase tracking-[0.3em] text-brand-400">Preferred time</label>
-                  <input
-                    type="text"
-                    className="w-full bg-brand-50/60 border border-brand-100 rounded-2xl px-6 py-4 text-sm"
-                    placeholder="e.g., Today 6pm–8pm"
-                    value={careRequestDraft.preferredTime}
-                    onChange={(e) => setCareRequestDraft({ ...careRequestDraft, preferredTime: e.target.value })}
-                  />
-                </div>
-                <div className="space-y-3">
-                  <label className="text-[10px] font-black uppercase tracking-[0.3em] text-brand-400">Notes</label>
-                  <textarea
-                    className="w-full bg-brand-50/60 border border-brand-100 rounded-2xl px-6 py-4 text-sm h-28 resize-none"
-                    placeholder="Add details, duration, appetite, or meds"
-                    value={careRequestDraft.notes}
-                    onChange={(e) => setCareRequestDraft({ ...careRequestDraft, notes: e.target.value })}
-                  />
-                </div>
-              </>
-            )}
-            {careRequestDraft.type === 'Emergency help' && (
-              <>
-                <div className="space-y-3">
-                  <label className="text-[10px] font-black uppercase tracking-[0.3em] text-brand-400">Urgency</label>
-                  <select
-                    className="w-full bg-brand-50/60 border border-brand-100 rounded-2xl px-6 py-4 text-sm"
-                    value={careRequestDraft.urgency}
-                    onChange={(e) => setCareRequestDraft({ ...careRequestDraft, urgency: e.target.value })}
-                  >
-                    {['High', 'Medium', 'Low'].map(option => (
-                      <option key={option}>{option}</option>
-                    ))}
-                  </select>
-                </div>
-                <div className="space-y-3">
-                  <label className="text-[10px] font-black uppercase tracking-[0.3em] text-brand-400">Location</label>
-                  <input
-                    className="w-full bg-brand-50/60 border border-brand-100 rounded-2xl px-6 py-4 text-sm"
-                    placeholder="Area / address"
-                    value={careRequestDraft.location}
-                    onChange={(e) => setCareRequestDraft({ ...careRequestDraft, location: e.target.value })}
-                  />
-                </div>
-                <div className="space-y-3">
-                  <label className="text-[10px] font-black uppercase tracking-[0.3em] text-brand-400">Notes</label>
-                  <textarea
-                    className="w-full bg-brand-50/60 border border-brand-100 rounded-2xl px-6 py-4 text-sm h-28 resize-none"
-                    placeholder="What happened, symptoms, breathing, bleeding"
-                    value={careRequestDraft.notes}
-                    onChange={(e) => setCareRequestDraft({ ...careRequestDraft, notes: e.target.value })}
-                  />
-                </div>
-              </>
-            )}
-            {careRequestDraft.type === 'Upload report' && (
-              <>
-                <div className="space-y-3">
-                  <label className="text-[10px] font-black uppercase tracking-[0.3em] text-brand-400">Report type</label>
-                  <select
-                    className="w-full bg-brand-50/60 border border-brand-100 rounded-2xl px-6 py-4 text-sm"
-                    value={careRequestDraft.reportType}
-                    onChange={(e) => setCareRequestDraft({ ...careRequestDraft, reportType: e.target.value })}
-                  >
-                    {['Lab report', 'Prescription', 'Scan', 'Other'].map(option => (
-                      <option key={option}>{option}</option>
-                    ))}
-                  </select>
-                </div>
-                <div className="space-y-3">
-                  <label className="text-[10px] font-black uppercase tracking-[0.3em] text-brand-400">Upload report</label>
-                  <input type="file" className="w-full text-sm text-brand-800/70" />
-                </div>
-                <div className="space-y-3">
-                  <label className="text-[10px] font-black uppercase tracking-[0.3em] text-brand-400">Notes</label>
-                  <textarea
-                    className="w-full bg-brand-50/60 border border-brand-100 rounded-2xl px-6 py-4 text-sm h-28 resize-none"
-                    placeholder="Add notes for the vet"
-                    value={careRequestDraft.notes}
-                    onChange={(e) => setCareRequestDraft({ ...careRequestDraft, notes: e.target.value })}
-                  />
-                </div>
-              </>
-            )}
-            {careRequestDraft.type === 'Care callback' && (
-              <>
-                <div className="space-y-3">
-                  <label className="text-[10px] font-black uppercase tracking-[0.3em] text-brand-400">Phone</label>
-                  <input
-                    className="w-full bg-brand-50/60 border border-brand-100 rounded-2xl px-6 py-4 text-sm"
-                    placeholder="+91 98765 43210"
-                    value={careRequestDraft.phone}
-                    onChange={(e) => setCareRequestDraft({ ...careRequestDraft, phone: e.target.value })}
-                  />
-                </div>
-                <div className="space-y-3">
-                  <label className="text-[10px] font-black uppercase tracking-[0.3em] text-brand-400">Preferred time</label>
-                  <input
-                    type="text"
-                    className="w-full bg-brand-50/60 border border-brand-100 rounded-2xl px-6 py-4 text-sm"
-                    placeholder="e.g., Tomorrow 11am"
-                    value={careRequestDraft.preferredTime}
-                    onChange={(e) => setCareRequestDraft({ ...careRequestDraft, preferredTime: e.target.value })}
-                  />
-                </div>
-                <div className="space-y-3">
-                  <label className="text-[10px] font-black uppercase tracking-[0.3em] text-brand-400">Notes</label>
-                  <textarea
-                    className="w-full bg-brand-50/60 border border-brand-100 rounded-2xl px-6 py-4 text-sm h-28 resize-none"
-                    placeholder="Reason for callback"
-                    value={careRequestDraft.notes}
-                    onChange={(e) => setCareRequestDraft({ ...careRequestDraft, notes: e.target.value })}
-                  />
-                </div>
-              </>
-            )}
+            <div className="space-y-3">
+              <label className="text-[10px] font-black uppercase tracking-[0.3em] text-brand-400">Contact phone (optional)</label>
+              <input
+                className="w-full bg-brand-50/60 border border-brand-100 rounded-2xl px-6 py-4 text-sm"
+                placeholder="+91 98765 43210"
+                value={careRequestDraft.phone}
+                onChange={(e) => setCareRequestDraft({ ...careRequestDraft, phone: e.target.value })}
+              />
+            </div>
             <button
               onClick={() => {
                 handleSaveCareRequest();
               }}
               className="w-full bg-brand-900 text-white py-4 rounded-[2rem] font-black text-[10px] uppercase tracking-widest shadow-lg hover:bg-brand-500 transition-all"
             >
-              Submit Request
+              Submit Triage
             </button>
           </div>
         </div>
@@ -4230,8 +5743,8 @@ const Dashboard: React.FC<Props> = ({ user, setUser, onUpgrade, onLogout }) => {
       )}
 
       {showTreats && (
-        <div className="fixed inset-0 z-[130] bg-brand-900/50 backdrop-blur-sm flex items-center justify-center p-6">
-          <div className="bg-white rounded-[3rem] p-8 max-w-lg w-full space-y-6 shadow-2xl">
+        <div className="fixed inset-0 z-[130] bg-brand-900/50 backdrop-blur-sm flex items-center justify-center p-6 motion-backdrop">
+          <div className="bg-white rounded-[3rem] p-8 max-w-lg w-full space-y-6 shadow-2xl max-h-[85vh] overflow-y-auto motion-modal">
             <div className="flex items-center justify-between">
               <div>
                 <h3 className="text-2xl font-display font-black text-brand-900">Pet Treats</h3>
@@ -4279,8 +5792,8 @@ const Dashboard: React.FC<Props> = ({ user, setUser, onUpgrade, onLogout }) => {
       )}
 
       {showPayment && (
-        <div className="fixed inset-0 z-[130] bg-brand-900/50 backdrop-blur-sm flex items-center justify-center p-6">
-          <div className="bg-white rounded-[3rem] p-8 max-w-lg w-full space-y-6 shadow-2xl">
+        <div className="fixed inset-0 z-[130] bg-brand-900/50 backdrop-blur-sm flex items-center justify-center p-6 motion-backdrop">
+          <div className="bg-white rounded-[3rem] p-8 max-w-lg w-full space-y-6 shadow-2xl max-h-[85vh] overflow-y-auto motion-modal">
             <div className="flex items-center justify-between">
               <h3 className="text-2xl font-display font-black text-brand-900">Upgrade to Pawveda Plus</h3>
               <button onClick={() => setShowPayment(false)} className="text-[10px] font-black uppercase tracking-widest text-brand-500">Close</button>
@@ -4316,8 +5829,8 @@ const Dashboard: React.FC<Props> = ({ user, setUser, onUpgrade, onLogout }) => {
       )}
 
       {showReminders && (
-        <div className="fixed inset-0 z-[130] bg-brand-900/50 backdrop-blur-sm flex items-center justify-center p-6">
-          <div className="bg-white rounded-[3rem] p-8 max-w-lg w-full space-y-6 shadow-2xl">
+        <div className="fixed inset-0 z-[130] bg-brand-900/50 backdrop-blur-sm flex items-center justify-center p-6 motion-backdrop">
+          <div className="bg-white rounded-[3rem] p-8 max-w-lg w-full space-y-6 shadow-2xl max-h-[85vh] overflow-y-auto motion-modal">
             <div className="flex items-center justify-between">
               <h3 className="text-2xl font-display font-black text-brand-900">Reminders</h3>
               <button onClick={() => setShowReminders(false)} className="text-[10px] font-black uppercase tracking-widest text-brand-500">Close</button>

@@ -62,8 +62,14 @@ const steps = [
 ];
 
 const breeds = ['Indie / Pariah', 'Golden Retriever', 'Labrador', 'German Shepherd', 'Beagle', 'Shih Tzu', 'Persian Cat', 'Indie Cat'];
-const priorities = ['Toxicity Checks', 'Climate Safety', 'Health Vault', 'AI Studio', 'RWA/Admin Peace'];
+const priorities = ['Toxicity Checks', 'Climate Safety', 'Health Vault', 'Triage + Vet Brief', 'RWA/Admin Peace'];
 const healthGoals = ['Weight Management', 'Skin/Coat Health', 'Anxiety & Calm', 'Joint Support', 'Training Discipline'];
+const csvToList = (value: string) =>
+  value
+    .split(',')
+    .map(item => item.trim())
+    .filter(Boolean);
+const listToCsv = (list?: string[]) => (list && list.length ? list.join(', ') : '');
 
 // Simulated real-time city registry
 const INDIAN_CITIES = [
@@ -98,12 +104,19 @@ const Onboarding: React.FC<Props> = ({ onComplete }) => {
     spayNeuterStatus: 'Unknown',
     vaccinationStatus: 'Not sure',
     lastVaccineDate: '',
+    lastVetVisitDate: '',
     activityBaseline: '30-60 min',
     housingType: 'Apartment',
     walkSurface: 'Mixed',
     parkAccess: 'Yes',
     feedingSchedule: 'Twice',
     foodBrand: '',
+    conditions: [],
+    medications: [],
+    primaryVetName: '',
+    primaryVetPhone: '',
+    emergencyContactName: '',
+    emergencyContactPhone: '',
     goals: [],
     vetAccess: 'Regular Vet'
   });
@@ -195,6 +208,13 @@ const Onboarding: React.FC<Props> = ({ onComplete }) => {
           feedingSchedule: formData.feedingSchedule,
           foodBrand: formData.foodBrand,
           vetAccess: formData.vetAccess,
+          lastVetVisitDate: formData.lastVetVisitDate || null,
+          conditions: formData.conditions,
+          medications: formData.medications,
+          primaryVetName: formData.primaryVetName || null,
+          primaryVetPhone: formData.primaryVetPhone || null,
+          emergencyContactName: formData.emergencyContactName || null,
+          emergencyContactPhone: formData.emergencyContactPhone || null,
           allergies: formData.allergies,
           interests: formData.interests,
           goals: formData.goals
@@ -501,6 +521,79 @@ const Onboarding: React.FC<Props> = ({ onComplete }) => {
                       {status}
                     </button>
                   ))}
+                </div>
+              </div>
+              <div className="space-y-4">
+                <label className="text-[10px] font-black text-brand-500 uppercase tracking-[0.3em] ml-2 block">Last Vet Visit (Optional)</label>
+                <input
+                  type="date"
+                  className="w-full bg-brand-50 border-none rounded-[2.5rem] px-8 py-5 outline-none focus:ring-4 focus:ring-brand-500/10 transition-all text-base font-bold text-brand-900"
+                  value={formData.lastVetVisitDate}
+                  onChange={(e) => setFormData({ ...formData, lastVetVisitDate: e.target.value })}
+                />
+              </div>
+              <div className="space-y-4">
+                <label className="text-[10px] font-black text-brand-500 uppercase tracking-[0.3em] ml-2 block">Existing Conditions (Optional)</label>
+                <input
+                  type="text"
+                  placeholder="e.g., arthritis, skin allergy"
+                  className="w-full bg-brand-50 border-none rounded-[2.5rem] px-8 py-5 outline-none focus:ring-4 focus:ring-brand-500/10 transition-all text-base font-bold text-brand-900"
+                  value={listToCsv(formData.conditions)}
+                  onChange={(e) => setFormData({ ...formData, conditions: csvToList(e.target.value) })}
+                />
+              </div>
+              <div className="space-y-4">
+                <label className="text-[10px] font-black text-brand-500 uppercase tracking-[0.3em] ml-2 block">Current Medications (Optional)</label>
+                <input
+                  type="text"
+                  placeholder="e.g., Apoquel, Omega 3"
+                  className="w-full bg-brand-50 border-none rounded-[2.5rem] px-8 py-5 outline-none focus:ring-4 focus:ring-brand-500/10 transition-all text-base font-bold text-brand-900"
+                  value={listToCsv(formData.medications)}
+                  onChange={(e) => setFormData({ ...formData, medications: csvToList(e.target.value) })}
+                />
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-4">
+                  <label className="text-[10px] font-black text-brand-500 uppercase tracking-[0.3em] ml-2 block">Primary Vet Name (Optional)</label>
+                  <input
+                    type="text"
+                    placeholder="Dr. Sharma"
+                    className="w-full bg-brand-50 border-none rounded-[2.5rem] px-6 py-5 outline-none focus:ring-4 focus:ring-brand-500/10 transition-all text-base font-bold text-brand-900"
+                    value={formData.primaryVetName}
+                    onChange={(e) => setFormData({ ...formData, primaryVetName: e.target.value })}
+                  />
+                </div>
+                <div className="space-y-4">
+                  <label className="text-[10px] font-black text-brand-500 uppercase tracking-[0.3em] ml-2 block">Primary Vet Phone (Optional)</label>
+                  <input
+                    type="text"
+                    placeholder="+91 98xxxxxx"
+                    className="w-full bg-brand-50 border-none rounded-[2.5rem] px-6 py-5 outline-none focus:ring-4 focus:ring-brand-500/10 transition-all text-base font-bold text-brand-900"
+                    value={formData.primaryVetPhone}
+                    onChange={(e) => setFormData({ ...formData, primaryVetPhone: e.target.value })}
+                  />
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-4">
+                  <label className="text-[10px] font-black text-brand-500 uppercase tracking-[0.3em] ml-2 block">Emergency Contact Name (Optional)</label>
+                  <input
+                    type="text"
+                    placeholder="Family member"
+                    className="w-full bg-brand-50 border-none rounded-[2.5rem] px-6 py-5 outline-none focus:ring-4 focus:ring-brand-500/10 transition-all text-base font-bold text-brand-900"
+                    value={formData.emergencyContactName}
+                    onChange={(e) => setFormData({ ...formData, emergencyContactName: e.target.value })}
+                  />
+                </div>
+                <div className="space-y-4">
+                  <label className="text-[10px] font-black text-brand-500 uppercase tracking-[0.3em] ml-2 block">Emergency Contact Phone (Optional)</label>
+                  <input
+                    type="text"
+                    placeholder="+91 98xxxxxx"
+                    className="w-full bg-brand-50 border-none rounded-[2.5rem] px-6 py-5 outline-none focus:ring-4 focus:ring-brand-500/10 transition-all text-base font-bold text-brand-900"
+                    value={formData.emergencyContactPhone}
+                    onChange={(e) => setFormData({ ...formData, emergencyContactPhone: e.target.value })}
+                  />
                 </div>
               </div>
               <button onClick={next} className="w-full bg-brand-900 text-white py-6 rounded-[2.5rem] font-bold text-xl shadow-2xl hover:bg-brand-500 transition-all active:scale-95">Proceed to Nutrition</button>

@@ -61,6 +61,10 @@ export const createDietLog = async (payload: {
   return apiClient.post<DietLogRecord>('/api/diet/logs', payload, { auth: true });
 };
 
+export const fetchDietLogs = async (petId: string, rangeDays = 90) => {
+  return apiClient.get<DietLogRecord[]>(`/api/diet/logs?petId=${petId}&rangeDays=${rangeDays}`, { auth: true });
+};
+
 export const createMedicalEvent = async (payload: {
   petId: string;
   eventType: string;

@@ -16,6 +16,13 @@ export interface PetData {
   spayNeuterStatus?: 'Yes' | 'No' | 'Unknown';
   vaccinationStatus?: 'Up to date' | 'Partial' | 'Not sure';
   lastVaccineDate?: string;
+  lastVetVisitDate?: string;
+  conditions?: string[];
+  medications?: string[];
+  primaryVetName?: string;
+  primaryVetPhone?: string;
+  emergencyContactName?: string;
+  emergencyContactPhone?: string;
   activityBaseline?: '15-30 min' | '30-60 min' | '60+ min';
   housingType?: 'Apartment' | 'Independent House' | 'Farm / Villa';
   walkSurface?: 'Asphalt' | 'Grass' | 'Mixed';
@@ -280,6 +287,8 @@ export interface CareRequestRecord {
   location?: string | null;
   urgency?: string | null;
   reportType?: string | null;
+  outcome?: string | null;
+  paid?: boolean | null;
   status?: string | null;
   createdAt?: string;
 }

@@ -174,11 +174,11 @@ const LandingPage: React.FC<Props> = ({ onStart }) => {
   };
 
   const interestOptions = [
-    'AI-Powered NutriScan (Dal/Curd Audits)',
-    'Health Vault (Prescription Analysis)',
+    '2-Minute Triage + Vet Brief',
+    'Health Vault (Meds + Timeline)',
     'Climate Shield (Heat Safety Alerts)',
-    'Studio Pro (Cinematic Memories)',
-    '24/7 AI First-Aid Companion'
+    'NutriScan (Indian Food Safety)',
+    'Adoption Hub + Community'
   ];
 
   const toggleInterest = (value: string) => {
@@ -210,21 +210,21 @@ const LandingPage: React.FC<Props> = ({ onStart }) => {
         <div className="max-w-7xl mx-auto grid lg:grid-cols-2 gap-20 items-center">
           <div className={`transition-all duration-1000 delay-300 transform ${isVisible ? 'translate-y-0 opacity-100' : 'translate-y-20 opacity-0'}`}>
             <span className="inline-block px-4 py-2 rounded-full bg-brand-100 text-brand-700 text-[9px] sm:text-[10px] font-black uppercase tracking-[0.18em] sm:tracking-[0.2em] mb-8 text-center leading-relaxed max-w-[24rem] sm:max-w-none">
-              The Intelligence Layer for Indian Pet Parents
+              Emergency vs Wait, Settled in 2 Minutes
             </span>
             <h1 className="text-6xl md:text-8xl font-display font-extrabold text-neutral-dark leading-[0.9] mb-10 tracking-tighter">
-              AI-Powered Pet Care, <br/><span className="text-brand-500 italic font-serif">Tailored for Indian Pet Parents</span>
+              2-Minute Triage, <br/><span className="text-brand-500 italic font-serif">Vet-Ready Brief</span>
             </h1>
             
             <div className="mb-12 border-l-4 border-brand-500 pl-8">
               <p className="text-xl md:text-2xl text-brand-800/80 font-medium italic animate-reveal">
-                Get expert guidance for your pet’s nutrition, health, and safety — with daily briefs, safety alerts, and nearby services tuned to your city and your pet’s breed.
+                Know the next step fast, then walk into the clinic with a structured brief: symptoms, meds, allergies, and timeline.
               </p>
             </div>
 
             <div className="flex flex-col sm:flex-row gap-8 items-center">
               <button onClick={() => onStart('signup')} className="w-full sm:w-auto bg-brand-500 text-white px-14 py-6 rounded-[2.5rem] text-xl font-bold shadow-2xl shadow-brand-500/20 hover:bg-brand-600 transition-all active:scale-95 group">
-                Join the Pack <span className="inline-block group-hover:translate-x-2 transition-transform ml-2">→</span>
+                Start Triage <span className="inline-block group-hover:translate-x-2 transition-transform ml-2">→</span>
               </button>
               <div className="flex items-center gap-4">
                 <div className="flex -space-x-3">
@@ -250,13 +250,13 @@ const LandingPage: React.FC<Props> = ({ onStart }) => {
             {/* Floating UI Elements */}
             <div className="absolute -bottom-10 -left-10 bg-white/90 backdrop-blur-xl p-8 rounded-[3rem] shadow-2xl max-w-[280px] border border-white/20 animate-bounce-slow">
               <div className="flex items-center gap-4 mb-4">
-                <div className="w-12 h-12 bg-brand-500 rounded-2xl flex items-center justify-center text-2xl text-white shadow-lg shadow-brand-500/30">🥗</div>
+                <div className="w-12 h-12 bg-brand-500 rounded-2xl flex items-center justify-center text-2xl text-white shadow-lg shadow-brand-500/30">🩺</div>
                 <div>
-                  <div className="text-[10px] font-black text-brand-500 uppercase tracking-widest">NutriScan Active</div>
-                  <div className="text-[9px] text-brand-300 uppercase">Grounded Check</div>
+                  <div className="text-[10px] font-black text-brand-500 uppercase tracking-widest">Triage Outcome</div>
+                  <div className="text-[9px] text-brand-300 uppercase">Vet Brief Ready</div>
                 </div>
               </div>
-              <p className="text-xs font-bold text-neutral-dark leading-relaxed italic">"Dal identified. Safe for Bruno. Avoid adding table salt or fried tadka."</p>
+              <p className="text-xs font-bold text-neutral-dark leading-relaxed italic">"Visit soon. Bring the brief with symptoms, meds, and timeline."</p>
             </div>
           </div>
         </div>
@@ -272,107 +272,68 @@ const LandingPage: React.FC<Props> = ({ onStart }) => {
           {(() => {
             const features = [
               {
-                id: 'daily-brief',
-                icon: '📡',
-                title: 'Daily Pet Brief',
-                summary: 'Personalized walk windows, hydration risk, and air-safety tuned to your city + breed.',
-                highlight: 'Safe walk window in seconds',
-                bullets: ['Heat + AQI aware', 'Breed-specific hydration tips', 'Daily micro-advice'],
+                id: 'triage',
+                icon: '🩺',
+                title: '2-Minute Triage',
+                summary: 'Answer a few questions to decide: emergency, visit soon, or monitor.',
+                highlight: 'Emergency vs wait, fast',
+                bullets: ['Symptom-led questions', 'Clear urgency tier', 'Next-step actions'],
                 metrics: [
-                  { label: 'Safe Walk', value: '6:15–7:10 AM' },
-                  { label: 'Heat Index', value: 'High' },
-                  { label: 'Hydration', value: '+250 ml' }
+                  { label: 'Time', value: '2 mins' },
+                  { label: 'Outcome', value: 'Visit soon' },
+                  { label: 'Next', value: 'Share brief' }
+                ]
+              },
+              {
+                id: 'vet-brief',
+                icon: '🧾',
+                title: 'Vet-Ready Brief',
+                summary: 'A structured health history: symptoms, meds, allergies, and timeline.',
+                highlight: 'Clinic-ready in one tap',
+                bullets: ['Symptom timeline', 'Current meds + allergies', 'Recent visits + labs'],
+                metrics: [
+                  { label: 'Last visit', value: '12 Jan' },
+                  { label: 'Meds', value: '2 active' },
+                  { label: 'Allergies', value: '1 noted' }
                 ]
               },
               {
                 id: 'safety-radar',
                 icon: '🧭',
                 title: 'Safety Radar',
-                summary: 'Live alerts for heat, humidity, and air quality with exact actions to take.',
-                highlight: 'City-grade safety alerts',
+                summary: 'Heat, humidity, and air alerts tailored to your city.',
+                highlight: 'Live risk signals',
                 bullets: ['Heatwave warnings', 'Air-quality advisories', 'Paw-surface alerts'],
                 metrics: [
                   { label: 'PM2.5', value: '86' },
-                  { label: 'Humidity', value: '78%' },
-                  { label: 'Paw Risk', value: 'Moderate' }
+                  { label: 'Heat', value: 'High' },
+                  { label: 'Safe Walk', value: '6:15 AM' }
                 ]
               },
               {
-                id: 'nutriscan',
-                icon: '🥗',
-                title: 'NutriScan AI',
-                summary: 'Scan Indian meals and get instant safety checks for dal, curd, spices, and oils.',
-                highlight: 'Food safety in one scan',
-                bullets: ['Indian food toxicity map', 'Ingredient risk flags', 'Portion guidance'],
+                id: 'community',
+                icon: '💬',
+                title: 'Community Forum',
+                summary: 'Local tips from pet parents who live your city and routine.',
+                highlight: 'Real-world, local advice',
+                bullets: ['City-specific alerts', 'Breed smart tips', 'Verified safety notes'],
                 metrics: [
-                  { label: 'Dish', value: 'Moong Dal' },
-                  { label: 'Risk', value: 'Low' },
-                  { label: 'Notes', value: 'Skip tadka' }
+                  { label: 'Parents', value: '5,000+' },
+                  { label: 'Cities', value: '20+' },
+                  { label: 'Tips', value: 'Daily' }
                 ]
               },
               {
-                id: 'care-reminders',
-                icon: '⏰',
-                title: 'Care Reminders',
-                summary: 'Vaccines, deworming, grooming, and checkups—always on time.',
-                highlight: 'Never miss a cycle',
-                bullets: ['Auto-scheduled reminders', 'Smart nudges', 'Care history log'],
+                id: 'adoption',
+                icon: '🐾',
+                title: 'Adoption Hub',
+                summary: 'Verified pets and rescue partners with transparent timelines.',
+                highlight: 'Adopt with confidence',
+                bullets: ['Verified listings', 'Rescue partners', 'Clear adoption steps'],
                 metrics: [
-                  { label: 'Next Vaccine', value: '12 Apr' },
-                  { label: 'Deworm', value: '28 Apr' },
-                  { label: 'Groom', value: 'Monthly' }
-                ]
-              },
-              {
-                id: 'streaks',
-                icon: '✅',
-                title: 'Care Streak Checklist',
-                summary: 'Daily routines and nutrition checklists that build real habits.',
-                highlight: 'Consistency made visible',
-                bullets: ['Breed-specific routines', 'Smart daily check-ins', 'Streak badges'],
-                metrics: [
-                  { label: 'Streak', value: '12 days' },
-                  { label: 'Today', value: '3/4 done' },
-                  { label: 'Badge', value: 'Gold' }
-                ]
-              },
-              {
-                id: 'training',
-                icon: '🎯',
-                title: 'Pet Training Coach',
-                summary: 'Short, daily drills tailored to age, breed, and environment.',
-                highlight: 'Training in 6 minutes',
-                bullets: ['Behavioral micro-lessons', 'City-friendly drills', 'Progress track'],
-                metrics: [
-                  { label: 'Focus', value: 'Recall' },
-                  { label: 'Time', value: '6 mins' },
-                  { label: 'Progress', value: '+18%' }
-                ]
-              },
-              {
-                id: 'nearby',
-                icon: '🏥',
-                title: 'Nearby Services',
-                summary: 'Clinics, groomers, boarding, and emergency care with verified links.',
-                highlight: 'Trusted care, nearby',
-                bullets: ['Map-verified listings', 'Emergency shortcuts', 'Local ratings'],
-                metrics: [
-                  { label: 'Closest Vet', value: '1.2 km' },
-                  { label: 'Open Now', value: '3 clinics' },
-                  { label: 'Response', value: 'Instant' }
-                ]
-              },
-              {
-                id: 'studio',
-                icon: '✨',
-                title: 'Magic Studio',
-                summary: 'Cinematic pet art, memory reels, and shareable cards.',
-                highlight: 'Create unforgettable moments',
-                bullets: ['AI art styles', 'Memory timeline', 'Share-ready exports'],
-                metrics: [
-                  { label: 'Style', value: 'Royal Portrait' },
-                  { label: 'Render', value: '4K' },
-                  { label: 'Share', value: '1-tap' }
+                  { label: 'Rescues', value: '30+' },
+                  { label: 'Pets', value: 'Updated' },
+                  { label: 'Support', value: 'Guided' }
                 ]
               }
             ];
@@ -569,13 +530,13 @@ const LandingPage: React.FC<Props> = ({ onStart }) => {
         <div className="max-w-7xl mx-auto space-y-16">
           <div className="text-center">
             <span className="text-brand-500 font-black text-[10px] uppercase tracking-[0.3em] mb-4 block">Loved by Parents</span>
-            <h2 className="text-4xl md:text-5xl font-display font-black text-brand-900">Stories From the Pawveda Pack</h2>
+            <h2 className="text-4xl md:text-5xl font-display font-black text-brand-900">Triage Stories That Saved Time and Money</h2>
           </div>
           <div className="grid md:grid-cols-3 gap-10">
             {[
-              { name: "Aarav & Coco", quote: "The walking index saved us during Delhi heatwaves. It feels personal.", city: "Delhi" },
-              { name: "Neha & Luna", quote: "Reminders + checklist finally made our routine consistent.", city: "Bengaluru" },
-              { name: "Rishi & Simba", quote: "Nearby services and vet tips are worth the premium alone.", city: "Mumbai" }
+              { name: "Aarav & Coco", quote: "The triage said monitor instead of ER. We saved Rs 4,200 and a midnight panic.", city: "Delhi" },
+              { name: "Neha & Luna", quote: "It flagged heat stress early. We went in fast and avoided a worse situation.", city: "Bengaluru" },
+              { name: "Rishi & Simba", quote: "The vet brief saved 15 minutes at the clinic. The doctor loved the timeline.", city: "Mumbai" }
             ].map((item) => (
               <div key={item.name} className="bg-white p-8 rounded-[3rem] border border-brand-100 shadow-sm hover:shadow-xl transition-all">
                 <p className="text-lg font-display font-black text-brand-900 mb-4">“{item.quote}”</p>
@@ -726,19 +687,19 @@ const LandingPage: React.FC<Props> = ({ onStart }) => {
               name: "Beta",
               price: "₹19",
               badge: "Early Access",
-              perks: ["Daily Pet Brief", "Reminders", "Basic Checklists"]
+              perks: ["Triage preview", "Daily Pet Brief", "Basic Checklists"]
             },
             {
               name: "Pro Parent",
               price: "₹299",
               badge: "Popular",
-              perks: ["Safety Radar", "Nearby Services", "Community Events", "Unlimited Nutri Lens"]
+              perks: ["Unlimited Triage", "Vet-Ready Briefs", "Safety Radar", "Nearby Services"]
             },
             {
               name: "Elite Parent",
               price: "₹399",
               badge: "Premium",
-              perks: ["AI First-Aid", "Priority Support", "Unlimited Studio", "Advanced Insights"]
+              perks: ["Priority Triage", "Chronic Care Tracking", "Care Reminders", "Advanced Insights"]
             }
           ].map((plan) => (
             <div key={plan.name} className={`p-10 rounded-[3.5rem] ${plan.name === "Elite Parent" ? "bg-brand-900 text-white" : "bg-white border-2 border-brand-100"} shadow-lg relative overflow-hidden`}>
