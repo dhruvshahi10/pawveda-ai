@@ -76,7 +76,7 @@ const requestWithRetry = async <T>(
   });
 
   if (
-    response.status === 401 &&
+    (response.status === 401 || response.status === 403) &&
     auth &&
     retryAuth &&
     !skipAuthRefresh &&
