@@ -3,6 +3,11 @@
 ## Core truth
 - People do not pay for "AI analysis" alone; they pay for time saved, money saved, or anxiety reduced at a moment of urgency.
 
+## Start Here (each session)
+- [ ] Validate that triage + vet brief reduces anxiety in under 2 minutes.
+- [ ] Keep pricing simple: pay-per-use before subscriptions.
+- [ ] Do not expand monetization until core loop is working and trusted.
+
 ## What pet owners pay for
 - Urgency and anxiety relief: "Is this an emergency?"
 - Convenience: booking, reminders, meds, records.
@@ -45,6 +50,11 @@ Flow:
 - Prototype a 2-minute triage flow (Typeform + PDF output).
 - Charge immediately (even $5) to test willingness to pay.
 - Measure conversion, repeat usage, and WTP.
+
+## Immediate experiments (next 2 weeks)
+- Launch a payment-gated vet brief (manual link is fine).
+- Track conversion: triage start → outcome view → pay → brief export.
+- Offer a 7-day records + reminders trial after the brief.
 
 ## Brutal truth
 - AI insight is not the product; decision clarity and record quality are.

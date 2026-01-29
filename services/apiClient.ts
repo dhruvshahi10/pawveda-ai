@@ -91,11 +91,16 @@ const requestWithRetry = async <T>(
   const data = await parseResponse(response);
   if (!response.ok) {
     const payload = data as ApiErrorPayload | null;
-    const message =
+    const rawText = typeof data === 'string' ? data.trim() : '';
+    const safeText = rawText && !rawText.startsWith('<') ? rawText : '';
+    let message =
       payload?.error ||
       payload?.message ||
-      (typeof data === 'string' ? data : null) ||
-      'Request failed.';
+      safeText ||
+      '';
+    if (!message || message === 'Request failed.') {
+      message = `${response.status} ${response.statusText}`.trim() || 'Request failed.';
+    }
     throw new Error(message);
   }
   return data as T;

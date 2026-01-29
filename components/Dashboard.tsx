@@ -2,19 +2,21 @@
 import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { Link } from 'react-router-dom';
 import { ResponsiveContainer, LineChart, Line, XAxis, YAxis, Tooltip, BarChart, Bar, PieChart, Pie, Cell } from 'recharts';
-import { ActivityLog, ActivityLogRecord, CareRequestRecord, ChecklistHistoryPoint, ChecklistItem, ChecklistSection, DailyBrief, DashboardSummary, DietLogRecord, MicroTip, NearbyService, NutriLensResult, PetData, PetEvent, PetUpdateRecord, Reminder, SafetyRadar, UserCredits, UserState } from '../types';
+import { ActivityLog, ActivityLogRecord, CareRequestRecord, ChecklistHistoryPoint, ChecklistItem, ChecklistSection, DashboardSummary, DietLogRecord, MicroTip, NearbyService, NutriLensResult, PetData, PetEvent, PetUpdateRecord, Reminder, SafetyRadar, UserCredits, UserState } from '../types';
 import { 
   analyzeNutriLens, 
   suggestActivity, 
   generatePlayPlan
 } from '../services/geminiService';
-import { fetchDailyBrief, fetchNearbyServices, fetchPetEvents, fetchSafetyRadar, getChecklist, getMicroTips, seedChecklistHistory } from '../services/feedService';
+import { fetchNearbyServices, fetchPetEvents, fetchSafetyRadar, getChecklist, getMicroTips, seedChecklistHistory } from '../services/feedService';
 import { apiClient } from '../services/apiClient';
 import { createActivityLog, createDietLog, createMedicalEvent, createParentFeedback, createPetUpdate, createSymptomLog, fetchActivityLogs, fetchDashboardSummary, fetchDietLogs, fetchPetUpdates } from '../services/dashboardService';
 import { createTriageSession, fetchTriageSessions } from '../services/triageService';
 import Adoption from './Adoption';
 import { getAuthSession, setAuthSession } from '../lib/auth';
 import { getAllBlogs } from '../lib/content';
+import { buildBreedInsights, buildEvidenceBrief } from '../lib/checkupInsights';
+import { trackEvent } from '../lib/usageAnalytics';
 
 interface Props {
   user: UserState;
@@ -396,7 +398,6 @@ const Dashboard: React.FC<Props> = ({ user, setUser, onUpgrade, onLogout }) => {
   const [loadingMsg, setLoadingMsg] = useState('');
   const [microTips, setMicroTips] = useState<MicroTip[]>([]);
   const [petEvents, setPetEvents] = useState<PetEvent[]>([]);
-  const [dailyBrief, setDailyBrief] = useState<DailyBrief | null>(null);
   const [briefIndex, setBriefIndex] = useState(0);
   const [safetyRadar, setSafetyRadar] = useState<SafetyRadar | null>(null);
   const [nearbyServices, setNearbyServices] = useState<NearbyService[]>([]);
@@ -522,7 +523,34 @@ const Dashboard: React.FC<Props> = ({ user, setUser, onUpgrade, onLogout }) => {
   const [logNotes, setLogNotes] = useState('');
   const [filterType, setFilterType] = useState<'All' | 'Walk' | 'Play' | 'Training'>('All');
   const [filterDate, setFilterDate] = useState<'All' | 'Today' | 'Week'>('All');
-  
+
+  const resolvedTier = (user.tier ?? (user.isPremium ? 'pro' : 'free')).toLowerCase();
+  const tierRank = (tier: string) => {
+    switch (tier) {
+      case 'plus':
+        return 1;
+      case 'pro':
+        return 2;
+      case 'elite':
+        return 3;
+      default:
+        return 0;
+    }
+  };
+  const hasTier = (minTier: 'plus' | 'pro' | 'elite') => tierRank(resolvedTier) >= tierRank(minTier);
+  const renderLocked = (title: string, message: string, cta: string) => (
+    <div className="bg-white border border-brand-100 rounded-[3.5rem] p-12 text-center shadow-xl">
+      <p className="text-[10px] font-black uppercase tracking-[0.4em] text-brand-500">{title}</p>
+      <h3 className="text-3xl font-display font-black text-brand-900 mt-4">Unlock expert care</h3>
+      <p className="text-sm text-brand-800/60 mt-3 max-w-md mx-auto">{message}</p>
+      <button
+        onClick={() => setShowPayment(true)}
+        className="mt-8 px-8 py-4 rounded-full bg-brand-900 text-white text-[10px] font-black uppercase tracking-widest shadow-lg hover:bg-brand-500 transition-all"
+      >
+        {cta}
+      </button>
+    </div>
+  );
 
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -1206,22 +1234,15 @@ const Dashboard: React.FC<Props> = ({ user, setUser, onUpgrade, onLogout }) => {
 
         const results = await Promise.allSettled([
           fetchPetEvents(user.pet.city),
-          fetchDailyBrief(user.pet.city),
           fetchSafetyRadar(user.pet.city),
           fetchNearbyServices(user.pet.city),
           generatePlayPlan(user.pet)
         ]);
-        const [eventsResult, briefResult, radarResult, servicesResult, gameResult] = results;
+        const [eventsResult, radarResult, servicesResult, gameResult] = results;
         if (eventsResult.status === 'fulfilled') {
           setPetEvents(eventsResult.value);
         } else {
           setPetEvents([]);
-        }
-        if (briefResult.status === 'fulfilled') {
-          setDailyBrief(briefResult.value);
-          setBriefIndex(0);
-        } else {
-          setDailyBrief(null);
         }
         if (radarResult.status === 'fulfilled') {
           setSafetyRadar(radarResult.value);
@@ -1825,13 +1846,28 @@ const Dashboard: React.FC<Props> = ({ user, setUser, onUpgrade, onLogout }) => {
     });
   }, [user.activities, filterType, filterDate]);
 
+  const evidenceBrief = useMemo(
+    () => (user.pet ? buildEvidenceBrief(user.pet) : []),
+    [user.pet]
+  );
+  const checkupInsights = useMemo(
+    () => (user.pet ? buildBreedInsights(user.pet) : []),
+    [user.pet]
+  );
+
   useEffect(() => {
-    if (!dailyBrief?.items?.length) return;
+    if (!evidenceBrief.length) return;
     const interval = setInterval(() => {
-      setBriefIndex(prev => (prev + 1) % dailyBrief.items.length);
+      setBriefIndex(prev => (prev + 1) % evidenceBrief.length);
     }, 4500);
     return () => clearInterval(interval);
-  }, [dailyBrief]);
+  }, [evidenceBrief]);
+
+  useEffect(() => {
+    if (evidenceBrief.length) {
+      setBriefIndex(0);
+    }
+  }, [evidenceBrief.length]);
 
   const mergedChecklistSections = useMemo(() => {
     if (!customChecklist.length) return checklistSections;
@@ -1912,17 +1948,36 @@ const Dashboard: React.FC<Props> = ({ user, setUser, onUpgrade, onLogout }) => {
     );
   }, [checklistCompletedCount, checklistStreak, treatsLedger.activities, treatsLedger.updates]);
 
-  const activeBriefItem = dailyBrief?.items?.[briefIndex];
+  const activeBriefItem = evidenceBrief.length
+    ? evidenceBrief[briefIndex % evidenceBrief.length]
+    : null;
+  const briefIconMap: Record<string, string> = {
+    Safety: '🌡️',
+    Hydration: '💧',
+    Nutrition: '🥘',
+    Activity: '🏃',
+    'Senior care': '🦴'
+  };
+  const activeBriefIcon = activeBriefItem ? (briefIconMap[activeBriefItem.badge] || '🧠') : '🧠';
 
   const liveFeedItems = useMemo(() => {
-    const items: Array<{ id: string; type: 'tip' | 'event' | 'radar'; title: string; detail: string; meta: string; url?: string }> = [];
+    const items: Array<{
+      id: string;
+      type: 'tip' | 'event' | 'radar';
+      title: string;
+      detail: string;
+      meta: string;
+      url?: string;
+      sources?: Array<{ label: string; url: string }>;
+    }> = [];
     microTips.forEach(tip => {
       items.push({
         id: `tip-${tip.id}`,
         type: 'tip',
         title: tip.title,
         detail: tip.detail,
-        meta: tip.tags.join(" • ")
+        meta: tip.tags.join(" • "),
+        sources: tip.sources
       });
     });
     petEvents.forEach(event => {
@@ -1947,9 +2002,9 @@ const Dashboard: React.FC<Props> = ({ user, setUser, onUpgrade, onLogout }) => {
     const hydrated = items.length ? items : [{
       id: 'feed-wait',
       type: 'tip' as const,
-      title: 'Calibrating Local Feed',
-      detail: 'Syncing verified insights for your city.',
-      meta: 'Live Sync'
+      title: 'No local updates yet',
+      detail: 'Check back later for city-specific alerts and tips.',
+      meta: 'Updates'
     }];
     return hydrated.length < 8 ? [...hydrated, ...hydrated] : hydrated;
   }, [microTips, petEvents, safetyRadar]);
@@ -3031,8 +3086,9 @@ const Dashboard: React.FC<Props> = ({ user, setUser, onUpgrade, onLogout }) => {
             <h1 className="text-lg sm:text-xl font-display font-black text-brand-900 tracking-tight leading-none truncate">
               {user.pet?.name || 'PawVeda'}
             </h1>
-            <p className="text-[10px] font-black text-brand-500 uppercase tracking-widest truncate">
-              {user.pet?.city ? `${user.pet.city} Active Node` : 'Active Node'}
+            <p className="text-[10px] font-black text-brand-500 uppercase tracking-widest truncate flex items-center gap-2">
+              <span className="text-xs">📍</span>
+              <span className="truncate">{user.pet?.city || 'Set city'}</span>
             </p>
           </div>
 
@@ -3056,7 +3112,7 @@ const Dashboard: React.FC<Props> = ({ user, setUser, onUpgrade, onLogout }) => {
                 aria-label="Profile"
               >
                 <img
-                  src={`https://picsum.photos/seed/${user.pet?.name}/200`}
+                  src={user.pet?.photoUrl || `https://picsum.photos/seed/${user.pet?.name}/200`}
                   className="w-10 h-10 rounded-3xl object-cover border-4 border-brand-500/10 shadow-xl"
                   alt="Pet"
                 />
@@ -3096,27 +3152,125 @@ const Dashboard: React.FC<Props> = ({ user, setUser, onUpgrade, onLogout }) => {
             </div>
 
             <div className="grid gap-6">
+              <div className="bg-white p-10 rounded-[4rem] border border-brand-50 shadow-sm space-y-6">
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                  <div>
+                    <p className="text-[10px] font-black uppercase tracking-[0.3em] text-brand-400">Free Pet Health Checkup</p>
+                    <h3 className="text-2xl font-display font-black text-brand-900">Today’s safety snapshot</h3>
+                    <p className="text-brand-800/50 text-sm font-medium">
+                      Guidance based on your profile and local conditions.
+                    </p>
+                    <p className="text-[11px] text-brand-800/60 font-medium italic">Guidance only. Not a diagnosis.</p>
+                  </div>
+                  <Link
+                    to="/checkup"
+                    onClick={() => trackEvent('dashboard_checkup_view', { city: user.pet?.city, breed: user.pet?.breed })}
+                    className="text-[10px] font-black uppercase tracking-widest text-brand-500 underline underline-offset-4"
+                  >
+                    View full checkup
+                  </Link>
+                </div>
+                <div className="grid gap-4 md:grid-cols-3">
+                  <div className="bg-brand-50/60 p-5 rounded-2xl border border-brand-100 space-y-2">
+                    <p className="text-[9px] font-black uppercase tracking-widest text-brand-400">Safety Radar</p>
+                    <p className="text-lg font-display font-black text-brand-900">
+                      {safetyRadar?.airQualityLabel || 'Unavailable'}
+                    </p>
+                    <p className="text-[10px] text-brand-800/70 font-bold uppercase tracking-widest">
+                      {safetyRadar?.status || 'Data unavailable'}
+                    </p>
+                    <p className="text-xs text-brand-800/60 font-medium">PM2.5 {safetyRadar?.pm25 ?? '—'}</p>
+                    <p className="text-[11px] text-brand-800/60 font-medium italic">Live AQI integration pending.</p>
+                  </div>
+                  <div className="bg-brand-50/60 p-5 rounded-2xl border border-brand-100 space-y-2">
+                    <p className="text-[9px] font-black uppercase tracking-widest text-brand-400">Daily Brief</p>
+                    <p className="text-lg font-display font-black text-brand-900">
+                      {activeBriefItem?.title || 'Evidence-backed check'}
+                    </p>
+                    <p className="text-xs text-brand-800/70 font-medium italic">
+                      "{activeBriefItem?.detail || 'Evidence-backed guidance for today.'}"
+                    </p>
+                    {activeBriefItem?.sources?.length ? (
+                      <div className="flex flex-wrap gap-2 pt-1">
+                        {activeBriefItem.sources.map(source => (
+                          <a
+                            key={source.url}
+                            href={source.url}
+                            target="_blank"
+                            className="text-[9px] font-black uppercase tracking-widest text-brand-500 underline underline-offset-4"
+                          >
+                            {source.label}
+                          </a>
+                        ))}
+                      </div>
+                    ) : null}
+                  </div>
+                  <div className="bg-brand-50/60 p-5 rounded-2xl border border-brand-100 space-y-2">
+                    <p className="text-[9px] font-black uppercase tracking-widest text-brand-400">Breed Intelligence</p>
+                    {checkupInsights.length ? (
+                      <div className="space-y-2">
+                        {checkupInsights.slice(0, 2).map(item => (
+                          <div key={item.title}>
+                            <p className="text-sm font-display font-black text-brand-900">{item.title}</p>
+                            <p className="text-[11px] text-brand-800/60">{item.detail}</p>
+                            <div className="flex flex-wrap gap-2 pt-1">
+                              {item.sources.map(source => (
+                                <a
+                                  key={source.url}
+                                  href={source.url}
+                                  target="_blank"
+                                  className="text-[9px] font-black uppercase tracking-widest text-brand-500 underline underline-offset-4"
+                                >
+                                  {source.label}
+                                </a>
+                              ))}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <p className="text-[11px] text-brand-800/60">
+                        Add a breed in your pet profile to unlock breed-specific guidance.
+                      </p>
+                    )}
+                  </div>
+                </div>
+              </div>
+
               <div className="bg-brand-900 p-10 rounded-[4rem] text-white shadow-2xl relative overflow-hidden group">
                 <div className="relative z-10 space-y-4">
                   <div className="flex items-center gap-3">
                     <span className="bg-brand-500 px-3 py-1 rounded-full text-[9px] font-black uppercase tracking-widest">{activeBriefItem?.badge || "Daily Brief"}</span>
-                    <span className="text-white/40 text-[9px] font-bold uppercase tracking-widest">Live Sync</span>
+                    <span className="text-white/40 text-[9px] font-bold uppercase tracking-widest">Evidence Backed</span>
                   </div>
                   <h3 className="text-3xl font-display font-black tracking-tight">
-                    {activeBriefItem?.title || `${user.pet?.city} Walking Index`}
+                    {activeBriefItem?.title || `${user.pet?.city} Care Check`}
                   </h3>
-                  <p className="text-white/80 text-2xl font-display font-black">{activeBriefItem?.value || "—"}</p>
                   <p className="text-white/70 text-lg font-light leading-relaxed italic">
-                    "{activeBriefItem?.detail || `Personalized guidance for ${user.pet?.name} is syncing...`}"
+                    "{activeBriefItem?.detail || `Evidence-backed guidance for ${user.pet?.name}.`}"
                   </p>
+                  {activeBriefItem?.sources?.length ? (
+                    <div className="flex flex-wrap gap-3">
+                      {activeBriefItem.sources.map(source => (
+                        <a
+                          key={source.url}
+                          href={source.url}
+                          target="_blank"
+                          className="text-[9px] font-black uppercase tracking-widest text-white/80 underline underline-offset-4"
+                        >
+                          {source.label}
+                        </a>
+                      ))}
+                    </div>
+                  ) : null}
                 </div>
                 <div className="absolute -right-10 -bottom-10 text-[12rem] opacity-[0.05] rotate-12 group-hover:rotate-0 transition-transform duration-[3s]">
-                  {activeBriefItem?.icon || "🌡️"}
+                  {activeBriefIcon}
                 </div>
                 <div className="absolute bottom-8 left-10 flex gap-2">
-                  {dailyBrief?.items?.map((item, index) => (
+                  {evidenceBrief.map((item, index) => (
                     <span
-                      key={item.id}
+                      key={item.title}
                       className={`h-2 w-2 rounded-full transition-all ${index === briefIndex ? 'bg-brand-500' : 'bg-white/30'}`}
                     />
                   ))}
@@ -3178,16 +3332,25 @@ const Dashboard: React.FC<Props> = ({ user, setUser, onUpgrade, onLogout }) => {
                   <span className="text-[9px] font-black uppercase tracking-widest text-brand-400">{rangeLabel}</span>
                 </div>
                 <div className="space-y-3">
-                  {(dailyBrief?.items || []).slice(0, 3).map(item => (
-                    <div key={item.id} className="bg-brand-50/60 p-4 rounded-2xl border border-brand-100">
+                  {evidenceBrief.map(item => (
+                    <div key={item.title} className="bg-brand-50/60 p-4 rounded-2xl border border-brand-100">
                       <p className="text-[10px] font-black uppercase tracking-widest text-brand-400">{item.badge}</p>
                       <p className="text-lg font-display font-black text-brand-900">{item.title}</p>
                       <p className="text-xs text-brand-800/70 font-medium italic">"{item.detail}"</p>
+                      <div className="flex flex-wrap gap-2 mt-2">
+                        {item.sources.map(source => (
+                          <a
+                            key={source.url}
+                            href={source.url}
+                            target="_blank"
+                            className="text-[9px] font-black uppercase tracking-widest text-brand-500 underline underline-offset-4"
+                          >
+                            {source.label}
+                          </a>
+                        ))}
+                      </div>
                     </div>
                   ))}
-                  {(!dailyBrief?.items || dailyBrief.items.length === 0) && (
-                    <p className="text-sm text-brand-800/60 font-medium">Log a weekly check-in to personalize priorities.</p>
-                  )}
                 </div>
               </div>
 
@@ -3203,6 +3366,15 @@ const Dashboard: React.FC<Props> = ({ user, setUser, onUpgrade, onLogout }) => {
                   <p className="text-brand-800/60 text-base leading-relaxed font-medium">
                     Since you use <span className="text-brand-900 font-bold">Home Cooked</span> food, ensure you're avoiding hidden garlic in dal and excess turmeric.
                   </p>
+                  <div className="flex flex-wrap gap-2">
+                    <a
+                      href="https://www.aspca.org/pet-care/animal-poison-control/people-foods-avoid-feeding-your-pets"
+                      target="_blank"
+                      className="text-[9px] font-black uppercase tracking-widest text-brand-500 underline underline-offset-4"
+                    >
+                      ASPCA Toxic Foods
+                    </a>
+                  </div>
                   <button onClick={() => setActiveTab('nutri')} className="text-xs font-black text-brand-500 uppercase tracking-widest underline decoration-brand-100 underline-offset-8">Audit a Plate Now →</button>
                 </div>
               )}
@@ -3251,12 +3423,26 @@ const Dashboard: React.FC<Props> = ({ user, setUser, onUpgrade, onLogout }) => {
                     <div key={`${item.id}-${index}`} className="bg-brand-50/40 p-4 rounded-2xl">
                       <div className="flex items-center justify-between mb-2">
                         <span className="text-[8px] font-black uppercase tracking-widest text-brand-500">
-                          {item.type === 'tip' ? 'Vet Verified' : item.type === 'event' ? 'Community' : 'Safety Radar'}
+                          {item.type === 'tip' ? 'Source-backed' : item.type === 'event' ? 'Community' : 'Safety Radar'}
                         </span>
                         <span className="text-[8px] font-bold uppercase tracking-widest text-brand-300">{item.meta}</span>
                       </div>
                       <h4 className="text-sm font-display font-black text-brand-900 mb-1">{item.title}</h4>
                       <p className="text-xs text-brand-800/70 font-medium italic">"{item.detail}"</p>
+                      {item.sources?.length ? (
+                        <div className="flex flex-wrap gap-2 mt-2">
+                          {item.sources.map(source => (
+                            <a
+                              key={source.url}
+                              href={source.url}
+                              target="_blank"
+                              className="text-[9px] font-black uppercase tracking-widest text-brand-500 underline underline-offset-4"
+                            >
+                              {source.label}
+                            </a>
+                          ))}
+                        </div>
+                      ) : null}
                       {item.url && (
                         <a href={item.url} target="_blank" className="text-[9px] font-black text-brand-900 underline underline-offset-4 mt-2 inline-block">
                           View Details ↗
@@ -3269,6 +3455,7 @@ const Dashboard: React.FC<Props> = ({ user, setUser, onUpgrade, onLogout }) => {
             </div>
 
             {/* LOCAL SAFETY RADAR + NEARBY SERVICES */}
+            {hasTier('pro') ? (
             <div className="space-y-6">
               <div className="flex items-center justify-between">
                 <div className="space-y-1">
@@ -3356,6 +3543,15 @@ const Dashboard: React.FC<Props> = ({ user, setUser, onUpgrade, onLogout }) => {
                 ) : null}
               </div>
             </div>
+            ) : (
+              <div className="space-y-6">
+                {renderLocked(
+                  'Safety Radar + Nearby Services',
+                  'Upgrade to Pro to unlock local alerts, air quality, and trusted nearby services.',
+                  'Upgrade to Pro'
+                )}
+              </div>
+            )}
 
             {/* NEW: TRAIN AT HOME DROPDOWN */}
             <div className="bg-brand-50 p-10 rounded-[4rem] border border-brand-100 space-y-8">
@@ -3525,63 +3721,82 @@ const Dashboard: React.FC<Props> = ({ user, setUser, onUpgrade, onLogout }) => {
 
         {/* NUTRI LENS */}
         {activeTab === 'nutri' && (
-          <div className="space-y-10 animate-reveal">
-            <h2 className="text-5xl font-display font-black text-brand-900">Nutri Lens</h2>
-            {!selectedImage ? (
-              <div onClick={() => fileInputRef.current?.click()} className="bg-white border-4 border-dashed border-brand-100 rounded-[4rem] p-24 text-center hover:shadow-2xl hover:border-brand-500 transition-all cursor-pointer group">
-                <div className="text-9xl mb-10 group-hover:scale-110 transition-transform duration-700">🥘</div>
-                <h3 className="text-3xl font-display font-bold text-brand-900 mb-4">Focus Plate</h3>
-                <p className="text-brand-800/40 text-lg max-w-sm mx-auto leading-relaxed italic">Scan Indian home-cooked meals for hidden toxins.</p>
-                <input type="file" ref={fileInputRef} className="hidden" onChange={handleNutriLensUpload} />
-              </div>
-            ) : (
-              <div className="space-y-8">
-                <div className="relative rounded-[4rem] overflow-hidden shadow-2xl border-[12px] border-white group">
-                  <img src={selectedImage} className="w-full aspect-square object-cover" alt="Meal" />
-                  {isProcessing && (
-                    <div className="absolute inset-0 bg-brand-900/80 backdrop-blur-md flex flex-col items-center justify-center text-white p-12 text-center animate-pulse">
-                      <div className="w-24 h-24 border-4 border-brand-500 border-t-transparent rounded-full animate-spin mb-8 shadow-2xl" />
-                      <p className="font-display font-black tracking-[0.4em] uppercase text-xs">Auditing Toxicity...</p>
+          !hasTier('pro') ? (
+            <div className="animate-reveal">
+              {renderLocked(
+                'Nutri Lens',
+                'Upgrade to Pro to scan meals, detect toxins, and log nutrition insights with confidence.',
+                'Upgrade to Pro'
+              )}
+            </div>
+          ) : (
+            <div className="space-y-10 animate-reveal">
+              <h2 className="text-5xl font-display font-black text-brand-900">Nutri Lens</h2>
+              {!selectedImage ? (
+                <div onClick={() => fileInputRef.current?.click()} className="bg-white border-4 border-dashed border-brand-100 rounded-[4rem] p-24 text-center hover:shadow-2xl hover:border-brand-500 transition-all cursor-pointer group">
+                  <div className="text-9xl mb-10 group-hover:scale-110 transition-transform duration-700">🥘</div>
+                  <h3 className="text-3xl font-display font-bold text-brand-900 mb-4">Focus Plate</h3>
+                  <p className="text-brand-800/40 text-lg max-w-sm mx-auto leading-relaxed italic">Scan Indian home-cooked meals for hidden toxins.</p>
+                  <input type="file" ref={fileInputRef} className="hidden" onChange={handleNutriLensUpload} />
+                </div>
+              ) : (
+                <div className="space-y-8">
+                  <div className="relative rounded-[4rem] overflow-hidden shadow-2xl border-[12px] border-white group">
+                    <img src={selectedImage} className="w-full aspect-square object-cover" alt="Meal" />
+                    {isProcessing && (
+                      <div className="absolute inset-0 bg-brand-900/80 backdrop-blur-md flex flex-col items-center justify-center text-white p-12 text-center animate-pulse">
+                        <div className="w-24 h-24 border-4 border-brand-500 border-t-transparent rounded-full animate-spin mb-8 shadow-2xl" />
+                        <p className="font-display font-black tracking-[0.4em] uppercase text-xs">Auditing Toxicity...</p>
+                      </div>
+                    )}
+                  </div>
+                  {lensResult && (
+                    <div className="bg-white p-12 rounded-[4rem] shadow-2xl border border-brand-50 animate-reveal">
+                      <div className={`px-8 py-3 rounded-full text-[10px] font-black uppercase tracking-widest inline-block mb-10 ${lensResult.toxicity_status === 'Safe' ? 'bg-green-100 text-green-700' : lensResult.toxicity_status === 'Not Food' ? 'bg-blue-100 text-blue-700' : 'bg-red-100 text-red-700'}`}>
+                        {lensResult.toxicity_status} Detected
+                      </div>
+                      <div className="space-y-10">
+                        <div>
+                          <p className="text-[10px] font-black uppercase text-brand-400 mb-3 tracking-[0.4em]">Node Analysis</p>
+                          <p className="text-3xl font-display font-black text-brand-900 leading-tight italic">"{lensResult.item_identified}"</p>
+                        </div>
+                        <div className="p-10 bg-brand-50/50 rounded-[3rem] border border-brand-100">
+                          <p className="text-[10px] font-black uppercase text-brand-500 mb-6 tracking-[0.2em]">Veterinary Guidance</p>
+                          <p className="text-xl text-brand-900 leading-relaxed font-medium">{lensResult.correction_advice}</p>
+                        </div>
+                      </div>
+                      <button onClick={() => {setSelectedImage(null); setLensResult(null);}} className="w-full mt-14 py-8 text-brand-500 font-black uppercase tracking-[0.4em] text-xs border-2 border-brand-50 rounded-[2.5rem] hover:bg-brand-50 transition-all">New Scan</button>
                     </div>
                   )}
                 </div>
-                {lensResult && (
-                  <div className="bg-white p-12 rounded-[4rem] shadow-2xl border border-brand-50 animate-reveal">
-                    <div className={`px-8 py-3 rounded-full text-[10px] font-black uppercase tracking-widest inline-block mb-10 ${lensResult.toxicity_status === 'Safe' ? 'bg-green-100 text-green-700' : lensResult.toxicity_status === 'Not Food' ? 'bg-blue-100 text-blue-700' : 'bg-red-100 text-red-700'}`}>
-                      {lensResult.toxicity_status} Detected
-                    </div>
-                    <div className="space-y-10">
-                      <div>
-                        <p className="text-[10px] font-black uppercase text-brand-400 mb-3 tracking-[0.4em]">Node Analysis</p>
-                        <p className="text-3xl font-display font-black text-brand-900 leading-tight italic">"{lensResult.item_identified}"</p>
-                      </div>
-                      <div className="p-10 bg-brand-50/50 rounded-[3rem] border border-brand-100">
-                        <p className="text-[10px] font-black uppercase text-brand-500 mb-6 tracking-[0.2em]">Veterinary Guidance</p>
-                        <p className="text-xl text-brand-900 leading-relaxed font-medium">{lensResult.correction_advice}</p>
-                      </div>
-                    </div>
-                    <button onClick={() => {setSelectedImage(null); setLensResult(null);}} className="w-full mt-14 py-8 text-brand-500 font-black uppercase tracking-[0.4em] text-xs border-2 border-brand-50 rounded-[2.5rem] hover:bg-brand-50 transition-all">New Scan</button>
-                  </div>
-                )}
-              </div>
-            )}
-          </div>
+              )}
+            </div>
+          )
         )}
 
         {/* ACTIVITY HUB */}
         {activeTab === 'play' && (
-          <div className="space-y-16 animate-reveal">
-            <div className="flex justify-between items-end">
-              <div className="space-y-2">
-                <h2 className="text-5xl font-display font-black text-brand-900 leading-none">Play</h2>
-                <p className="text-brand-800/40 text-lg font-medium italic">Movement logs for {user.pet?.name}.</p>
-              </div>
-              {!showLogForm && (
-                <button onClick={() => setShowLogForm(true)} className="bg-brand-900 text-white px-8 py-4 rounded-3xl font-bold shadow-2xl hover:bg-brand-500 transition-all active:scale-95">
-                  Log Effort +
-                </button>
+          !hasTier('elite') ? (
+            <div className="animate-reveal">
+              {renderLocked(
+                'Activity Intelligence',
+                'Upgrade to Elite for activity logs, nutrition tracking, and advanced insights built for multi‑pet homes.',
+                'Upgrade to Elite'
               )}
             </div>
+          ) : (
+            <div className="space-y-16 animate-reveal">
+              <div className="flex justify-between items-end">
+                <div className="space-y-2">
+                  <h2 className="text-5xl font-display font-black text-brand-900 leading-none">Play</h2>
+                  <p className="text-brand-800/40 text-lg font-medium italic">Movement logs for {user.pet?.name}.</p>
+                </div>
+                {!showLogForm && (
+                  <button onClick={() => setShowLogForm(true)} className="bg-brand-900 text-white px-8 py-4 rounded-3xl font-bold shadow-2xl hover:bg-brand-500 transition-all active:scale-95">
+                    Log Effort +
+                  </button>
+                )}
+              </div>
             
             {showLogForm && (
               <div className="bg-white p-12 rounded-[4rem] border-2 border-brand-100 shadow-2xl animate-reveal space-y-10">
@@ -3726,6 +3941,7 @@ const Dashboard: React.FC<Props> = ({ user, setUser, onUpgrade, onLogout }) => {
               </div>
             </div>
           </div>
+          )
         )}
 
         {/* TRIAGE */}
@@ -5795,13 +6011,14 @@ const Dashboard: React.FC<Props> = ({ user, setUser, onUpgrade, onLogout }) => {
         <div className="fixed inset-0 z-[130] bg-brand-900/50 backdrop-blur-sm flex items-center justify-center p-6 motion-backdrop">
           <div className="bg-white rounded-[3rem] p-8 max-w-lg w-full space-y-6 shadow-2xl max-h-[85vh] overflow-y-auto motion-modal">
             <div className="flex items-center justify-between">
-              <h3 className="text-2xl font-display font-black text-brand-900">Upgrade to Pawveda Plus</h3>
+              <h3 className="text-2xl font-display font-black text-brand-900">Choose your Pawveda plan</h3>
               <button onClick={() => setShowPayment(false)} className="text-[10px] font-black uppercase tracking-widest text-brand-500">Close</button>
             </div>
             <div className="space-y-4">
               {[
-                { label: "Monthly", price: "₹399/mo", desc: "Daily intelligence + unlimited scans" },
-                { label: "Annual", price: "₹3,499/yr", desc: "Save 25% + premium support" }
+                { label: "Plus", price: "₹49/mo · ₹399/yr", desc: "Essential care + 2 AI checkups/month" },
+                { label: "Pro Parent", price: "₹299/mo · ₹2,499/yr", desc: "Vet briefs + Safety Radar + 6 AI checkups/month" },
+                { label: "Elite Parent", price: "₹499/mo · ₹3,999/yr", desc: "Advanced insights + 12 AI checkups/month" }
               ].map(plan => (
                 <div key={plan.label} className="border border-brand-100 rounded-[2rem] p-5 flex items-center justify-between">
                   <div>

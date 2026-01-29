@@ -5,6 +5,16 @@ This plan applies the chosen options:
 - Payment: manual payment link + unlock flag.
 - Brief export: client-side PDF now, server-generated PDF next.
 
+## Start Here (each session)
+- [ ] Keep triage + vet brief as the primary wedge.
+- [ ] Ensure the dashboard shows only 3 priorities: Check-in, Symptoms, Vet Brief.
+- [ ] Remove or hide non-wedge modules until the flow feels effortless.
+
+## Revamp Alignment
+- Minimal text UI: icon + short label + single action per card.
+- Outcome-first: every interaction ends with a clear next step.
+- Data quality: symptoms, meds, vaccines, photos are always easy to update.
+
 ## Phase 0: Positioning + Navigation (1-2 days)
 Goal: make triage the primary action without removing Adoption Hub or Community.
 
@@ -18,6 +28,17 @@ Files:
 - `components/LandingPage.tsx`
 - `components/Dashboard.tsx`
 - `components/SEO.tsx` (if messaging is duplicated)
+
+## Phase 0.5: Dashboard Simplification (1-2 days)
+Goal: make the dashboard feel light, focused, and actionable.
+
+Changes:
+- Replace dense text blocks with icon cards and short helper lines.
+- Keep a maximum of 5 visible actions per screen.
+- Add a clear "Today" summary (check-in, symptom, reminder).
+
+Files:
+- `components/Dashboard.tsx`
 
 ## Phase 1: Data Model + API (2-3 days)
 Goal: capture triage sessions cleanly and link to pet profiles.

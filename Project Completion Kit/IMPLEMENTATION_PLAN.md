@@ -2,6 +2,27 @@
 
 This plan assumes the backend lives in `../pawveda-backend` and already exposes `/api/*` endpoints. The goal is to turn placeholder logic into production-ready services and align the frontend to a stable, secure backend.
 
+## Revamp Objectives (post-funding reset)
+- Reduce cognitive load across all screens; default to visual-first UI with short helper text.
+- Anchor the product to one core loop: Onboarding → Pet Profile → Daily/Weekly Check-in → Symptom Signal → Vet Brief.
+- Make the dashboard outcome-driven (today's actions + health signals), not feature-driven.
+- Complete backend fundamentals first: auth, email verification/reset, media storage, payments, data persistence.
+- Treat trust and reliability as product features: transparent logs, stable data, predictable flows.
+
+## Next Steps (start here each session)
+- [ ] Confirm the current target: `MVP Core Loop` or `Platform Foundations`.
+- [ ] Pull the latest blockers and owners (auth, email, S3, Razorpay, dashboard redesign).
+- [ ] Choose one thin vertical slice and finish it end-to-end:
+  - Onboarding → Pet profile save → Photo upload → Dashboard summary render.
+- [ ] Capture a short demo note in `Project Completion Kit/IMPLEMENTATION_PLAN.md` under "Session Notes".
+- [ ] Update the "Done This Week" list for visible progress.
+
+## Session Notes
+- _Keep a running, dated log of what shipped and what is still blocked._
+
+## Done This Week
+- _List only completed, user-visible changes or backend merges._
+
 ## Assumptions (confirm or edit)
 - Frontend stays as-is and uses `VITE_BACKEND_URL` for API calls.
 - Backend is Spring Boot + Postgres (Supabase) in `../pawveda-backend`.
@@ -15,6 +36,7 @@ Steps
 - [ ] Rotate any exposed keys (DB and Gemini).
 - [ ] Ensure `JWT_SECRET` (and any refresh secret if added later) are set via env.
 - [ ] Confirm `VITE_BACKEND_URL` points to the Spring Boot API.
+- [ ] Add env var placeholders for email + S3 + Razorpay to avoid hardcoding later.
 
 Acceptance criteria
 - Backend starts without secrets in source control.
@@ -32,10 +54,23 @@ Steps
   - `GET /api/pet-events?city=Delhi`
 - [ ] Register and login via `/api/auth/register` and `/api/auth/login`.
 - [ ] Confirm `GET /api/me` works with the access token.
+- [ ] Validate email verification + password reset endpoints (stub responses ok).
 
 Acceptance criteria
 - Auth flow works from the frontend.
 - Feed endpoints return data (even if static).
+- Email verification and reset endpoints are reachable.
+
+## Phase 1.5: Auth + Email Completion (1-2 sessions)
+Goal: ship a trustworthy account system with verification and reset.
+
+Steps
+- [ ] Implement verification and reset flows in backend + frontend.
+- [ ] Add token expiry handling and UI error states.
+- [ ] Track verification state on user profile.
+
+Acceptance criteria
+- User can verify email, request reset, and complete password update.
 
 ## Phase 2: Database Alignment and Migrations (1-2 sessions)
 Goal: align the Spring Boot entities with the existing Supabase schema and make migrations reproducible.
@@ -64,6 +99,17 @@ Steps
 
 Acceptance criteria
 - Adoption and waitlist survive restarts and are queryable.
+
+## Phase 3.5: Media Storage + Thumbnails (1-2 sessions)
+Goal: enable reliable pet photo uploads with fast loading.
+
+Steps
+- [ ] Implement S3 (or compatible) upload flow with presigned URLs.
+- [ ] Add thumbnail generation (server or worker).
+- [ ] Store original + thumbnail URLs on pet profiles and activity logs.
+
+Acceptance criteria
+- Photo uploads succeed and render quickly on dashboard and profile views.
 
 ## Phase 4: Feed Data Integration (2-4 sessions)
 Goal: replace static feed data with real city-aware feeds.
@@ -94,6 +140,7 @@ Steps
 - [ ] Add tables: subscriptions, user_credits (or entitlements).
 - [ ] Implement Razorpay checkout endpoint and webhook handler.
 - [ ] Update frontend credit deduction to query the server.
+- [ ] Add subscription expiry tracking + grace period handling.
 
 Acceptance criteria
 - Premium status and credits persist across sessions and devices.

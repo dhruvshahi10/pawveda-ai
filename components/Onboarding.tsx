@@ -1,6 +1,7 @@
 
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { getAuthSession } from '../lib/auth';
+import { CAT_BREEDS, DOG_BREEDS, INDIAN_CITIES, OTHER_BREEDS } from '../lib/petOptions';
 import { apiClient } from '../services/apiClient';
 import { PetData } from '../types';
 
@@ -61,34 +62,50 @@ const steps = [
   }
 ];
 
-const breeds = ['Indie / Pariah', 'Golden Retriever', 'Labrador', 'German Shepherd', 'Beagle', 'Shih Tzu', 'Persian Cat', 'Indie Cat'];
 const priorities = ['Toxicity Checks', 'Climate Safety', 'Health Vault', 'Triage + Vet Brief', 'RWA/Admin Peace'];
 const healthGoals = ['Weight Management', 'Skin/Coat Health', 'Anxiety & Calm', 'Joint Support', 'Training Discipline'];
+const MAX_SUGGESTIONS = 8;
 const csvToList = (value: string) =>
   value
     .split(',')
-    .map(item => item.trim())
-    .filter(Boolean);
+    .map(item => item.trimStart())
+    .filter(item => item.trim().length > 0);
 const listToCsv = (list?: string[]) => (list && list.length ? list.join(', ') : '');
-
-// Simulated real-time city registry
-const INDIAN_CITIES = [
-  "Mumbai", "Delhi", "Bangalore", "Hyderabad", "Ahmedabad", "Chennai", "Kolkata", "Surat", "Pune", "Jaipur", 
-  "Lucknow", "Kanpur", "Nagpur", "Indore", "Thane", "Bhopal", "Visakhapatnam", "Pimpri-Chinchwad", "Patna", 
-  "Vadodara", "Ghaziabad", "Ludhiana", "Agra", "Nashik", "Faridabad", "Meerut", "Rajkot", "Kalyan-Dombivli", 
-  "Vasai-Virar", "Varanasi", "Srinagar", "Aurangabad", "Dhanbad", "Amritsar", "Navi Mumbai", "Allahabad", 
-  "Ranchi", "Howrah", "Coimbatore", "Jabalpur", "Gwalior", "Vijayawada", "Jodhpur", "Madurai", "Raipur", 
-  "Kota", "Guwahati", "Chandigarh", "Solapur", "Hubli-Dharwad"
+const normalizeList = (list?: string[]) => (list || []).map(item => item.trim()).filter(Boolean);
+const normalizeQuery = (value: string) => value.trim().toLowerCase();
+const filterTextMatches = (list: string[], query: string, limit = MAX_SUGGESTIONS) => {
+  const normalized = normalizeQuery(query);
+  const filtered = normalized
+    ? list.filter(item => item.toLowerCase().includes(normalized))
+    : list;
+  return filtered.slice(0, limit);
+};
+type BreedOption = {
+  group: 'Dog' | 'Cat' | 'Other';
+  label: string;
+};
+const BREED_OPTIONS: BreedOption[] = [
+  ...DOG_BREEDS.map(breed => ({ group: 'Dog', label: breed })),
+  ...CAT_BREEDS.map(breed => ({ group: 'Cat', label: breed })),
+  ...OTHER_BREEDS.map(breed => ({ group: 'Other', label: breed }))
 ];
+const filterBreedMatches = (query: string, limit = 10) => {
+  const normalized = normalizeQuery(query);
+  const filtered = normalized
+    ? BREED_OPTIONS.filter(option => option.label.toLowerCase().includes(normalized))
+    : BREED_OPTIONS;
+  return filtered.slice(0, limit);
+};
+
 
 const Onboarding: React.FC<Props> = ({ onComplete }) => {
   const [step, setStep] = useState(0);
-  const [citySearch, setCitySearch] = useState('');
-  const [isCityLoading, setIsCityLoading] = useState(false);
   const [saveState, setSaveState] = useState<'idle' | 'saving' | 'error' | 'success'>('idle');
   const [saveError, setSaveError] = useState('');
   const [toast, setToast] = useState<{ message: string; tone: 'error' | 'success' } | null>(null);
   const toastTimeout = useRef<number | null>(null);
+  const [cityOpen, setCityOpen] = useState(false);
+  const [breedOpen, setBreedOpen] = useState(false);
   const [formData, setFormData] = useState<PetData>({
     name: '',
     breed: 'Indie / Pariah',
@@ -99,6 +116,7 @@ const Onboarding: React.FC<Props> = ({ onComplete }) => {
     gender: 'Male',
     activityLevel: 'Moderate',
     city: '',
+    photoUrl: '',
     allergies: [],
     interests: [],
     spayNeuterStatus: 'Unknown',
@@ -133,21 +151,6 @@ const Onboarding: React.FC<Props> = ({ onComplete }) => {
     if (step > 0) setStep(s => s - 1);
   };
 
-  const citySuggestions = useMemo(() => {
-    if (!citySearch || citySearch.length < 2) return [];
-    return INDIAN_CITIES.filter(c => 
-      c.toLowerCase().includes(citySearch.toLowerCase()) && c !== formData.city
-    ).slice(0, 5);
-  }, [citySearch, formData.city]);
-
-  useEffect(() => {
-    if (citySearch) {
-      setIsCityLoading(true);
-      const timer = setTimeout(() => setIsCityLoading(false), 300);
-      return () => clearTimeout(timer);
-    }
-  }, [citySearch]);
-
   useEffect(() => {
     if (step === steps.length - 1 && saveState === 'idle') {
       const timer = setTimeout(() => handleSubmit(), 3500);
@@ -171,6 +174,27 @@ const Onboarding: React.FC<Props> = ({ onComplete }) => {
     toastTimeout.current = window.setTimeout(() => {
       setToast(null);
     }, 3500);
+  };
+
+  const handlePhotoChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    if (!file.type.startsWith('image/')) {
+      showToast('Please upload a valid image file.', 'error');
+      return;
+    }
+    if (file.size > 2 * 1024 * 1024) {
+      showToast('Image too large. Use a file under 2MB.', 'error');
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = () => {
+      const result = typeof reader.result === 'string' ? reader.result : '';
+      if (result) {
+        setFormData(prev => ({ ...prev, photoUrl: result }));
+      }
+    };
+    reader.readAsDataURL(file);
   };
 
   const handleSubmit = async () => {
@@ -198,6 +222,7 @@ const Onboarding: React.FC<Props> = ({ onComplete }) => {
           gender: formData.gender,
           activityLevel: formData.activityLevel,
           city: formData.city,
+          photoUrl: formData.photoUrl || null,
           spayNeuterStatus: formData.spayNeuterStatus,
           vaccinationStatus: formData.vaccinationStatus,
           lastVaccineDate: formData.lastVaccineDate || null,
@@ -209,13 +234,13 @@ const Onboarding: React.FC<Props> = ({ onComplete }) => {
           foodBrand: formData.foodBrand,
           vetAccess: formData.vetAccess,
           lastVetVisitDate: formData.lastVetVisitDate || null,
-          conditions: formData.conditions,
-          medications: formData.medications,
+          conditions: normalizeList(formData.conditions),
+          medications: normalizeList(formData.medications),
           primaryVetName: formData.primaryVetName || null,
           primaryVetPhone: formData.primaryVetPhone || null,
           emergencyContactName: formData.emergencyContactName || null,
           emergencyContactPhone: formData.emergencyContactPhone || null,
-          allergies: formData.allergies,
+          allergies: normalizeList(formData.allergies),
           interests: formData.interests,
           goals: formData.goals
         },
@@ -233,6 +258,8 @@ const Onboarding: React.FC<Props> = ({ onComplete }) => {
   };
 
   const progress = (step / (steps.length - 1)) * 100;
+  const cityMatches = filterTextMatches(INDIAN_CITIES, formData.city);
+  const breedMatches = filterBreedMatches(formData.breed);
 
   return (
     <div className="min-h-screen bg-[#FAF8F6] flex items-center justify-center p-4 md:p-10">
@@ -315,41 +342,61 @@ const Onboarding: React.FC<Props> = ({ onComplete }) => {
               <div className="space-y-4">
                 <label className="text-[10px] font-black text-brand-500 uppercase tracking-[0.3em] ml-2 block">Real-time City Sync</label>
                 <div className="relative">
-                  <input 
+                  <input
                     autoFocus
-                    type="text" 
-                    placeholder="Search city (e.g., Bangalore)"
-                    className="w-full bg-brand-50 border-none rounded-[2.5rem] px-8 py-6 outline-none focus:ring-4 focus:ring-brand-500/10 transition-all text-xl md:text-2xl font-bold text-brand-900"
-                    value={citySearch || formData.city}
+                    type="text"
+                    placeholder="Start typing your city"
+                    value={formData.city}
                     onChange={(e) => {
-                      setCitySearch(e.target.value);
-                      if (!e.target.value) setFormData({...formData, city: ''});
+                      setFormData({ ...formData, city: e.target.value });
+                      setCityOpen(true);
                     }}
+                    onFocus={() => {
+                      setCityOpen(true);
+                      setBreedOpen(false);
+                    }}
+                    onBlur={() => {
+                      window.setTimeout(() => setCityOpen(false), 120);
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Escape') setCityOpen(false);
+                    }}
+                    aria-expanded={cityOpen}
+                    aria-controls="city-listbox"
+                    autoComplete="off"
+                    className="w-full bg-brand-50 border-none rounded-[2.5rem] px-8 pr-12 py-6 outline-none focus:ring-4 focus:ring-brand-500/10 transition-all text-xl md:text-2xl font-bold text-brand-900"
                   />
-                  {isCityLoading && <div className="absolute right-8 top-1/2 -translate-y-1/2 w-6 h-6 border-2 border-brand-500 border-t-transparent rounded-full animate-spin" />}
-                  
-                  {citySuggestions.length > 0 && (
-                    <div className="absolute top-full left-0 right-0 mt-3 bg-white rounded-[2rem] shadow-2xl border border-brand-50 overflow-hidden z-[70] animate-reveal">
-                      {citySuggestions.map(city => (
-                        <button 
-                          key={city}
-                          onClick={() => {
-                            setFormData({...formData, city});
-                            setCitySearch('');
-                          }}
-                          className="w-full text-left px-10 py-5 hover:bg-brand-50 font-bold text-brand-900 transition-colors flex items-center justify-between group"
-                        >
-                          {city}
-                          <span className="opacity-0 group-hover:opacity-100 transition-opacity text-brand-500">📍</span>
-                        </button>
-                      ))}
+                  <span className="pointer-events-none absolute right-8 top-1/2 -translate-y-1/2 text-brand-500/70 text-2xl">▾</span>
+                  {cityOpen && (
+                    <div className="absolute z-20 mt-3 w-full rounded-[2rem] border border-brand-100 bg-white shadow-xl overflow-hidden">
+                      <ul id="city-listbox" role="listbox" className="max-h-64 overflow-auto py-2">
+                        {cityMatches.length > 0 ? (
+                          cityMatches.map(city => (
+                            <li key={city} role="option">
+                              <button
+                                type="button"
+                                onMouseDown={(event) => {
+                                  event.preventDefault();
+                                  setFormData({ ...formData, city });
+                                  setCityOpen(false);
+                                }}
+                                className="w-full text-left px-6 py-3 text-sm font-bold text-brand-900 hover:bg-brand-50"
+                              >
+                                {city}
+                              </button>
+                            </li>
+                          ))
+                        ) : (
+                          <li className="px-6 py-4 text-xs font-bold text-brand-400">No matching cities.</li>
+                        )}
+                      </ul>
                     </div>
                   )}
                 </div>
               </div>
               <p className="text-brand-800/40 text-sm italic">Grounds our AI in local weather warnings and RWA news.</p>
               <button 
-                disabled={!formData.city}
+                disabled={!formData.city.trim()}
                 onClick={next}
                 className="w-full bg-brand-900 text-white py-6 rounded-[2.5rem] font-bold text-xl shadow-2xl hover:bg-brand-500 transition-all disabled:opacity-20 transform active:scale-95"
               >
@@ -393,22 +440,65 @@ const Onboarding: React.FC<Props> = ({ onComplete }) => {
             <div className="animate-reveal space-y-8">
               <div className="space-y-4">
                 <label className="text-[10px] font-black text-brand-500 uppercase tracking-[0.3em] ml-2 block">Breed / Lineage</label>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  {breeds.map(b => (
-                    <button 
-                      key={b}
-                      onClick={() => setFormData({...formData, breed: b})}
-                      className={`p-5 rounded-2xl border-2 text-left transition-all text-sm font-bold ${formData.breed === b ? 'border-brand-500 bg-brand-50 text-brand-900 shadow-sm' : 'border-brand-50 bg-white text-brand-800/40 hover:border-brand-200'}`}
-                    >
-                      {b}
-                    </button>
-                  ))}
+                <div className="relative">
+                  <input
+                    type="text"
+                    placeholder="Search breed or type"
+                    value={formData.breed}
+                    onChange={(e) => {
+                      setFormData({ ...formData, breed: e.target.value });
+                      setBreedOpen(true);
+                    }}
+                    onFocus={() => {
+                      setBreedOpen(true);
+                      setCityOpen(false);
+                    }}
+                    onBlur={() => {
+                      window.setTimeout(() => setBreedOpen(false), 120);
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Escape') setBreedOpen(false);
+                    }}
+                    aria-expanded={breedOpen}
+                    aria-controls="breed-listbox"
+                    autoComplete="off"
+                    className="w-full bg-brand-50 border-none rounded-[2.5rem] px-8 pr-12 py-5 outline-none focus:ring-4 focus:ring-brand-500/10 transition-all text-base font-bold text-brand-900"
+                  />
+                  <span className="pointer-events-none absolute right-8 top-1/2 -translate-y-1/2 text-brand-500/70 text-xl">▾</span>
+                  {breedOpen && (
+                    <div className="absolute z-20 mt-3 w-full rounded-[2rem] border border-brand-100 bg-white shadow-xl overflow-hidden">
+                      <ul id="breed-listbox" role="listbox" className="max-h-64 overflow-auto py-2">
+                        {breedMatches.length > 0 ? (
+                          breedMatches.map(option => (
+                            <li key={`${option.group}-${option.label}`} role="option">
+                              <button
+                                type="button"
+                                onMouseDown={(event) => {
+                                  event.preventDefault();
+                                  setFormData({ ...formData, breed: option.label });
+                                  setBreedOpen(false);
+                                }}
+                                className="w-full text-left px-6 py-3 hover:bg-brand-50"
+                              >
+                                <div className="flex items-center gap-3">
+                                  <span className="text-[9px] font-black uppercase tracking-[0.3em] text-brand-400">{option.group}</span>
+                                  <span className="text-sm font-bold text-brand-900">{option.label}</span>
+                                </div>
+                              </button>
+                            </li>
+                          ))
+                        ) : (
+                          <li className="px-6 py-4 text-xs font-bold text-brand-400">No matching breeds.</li>
+                        )}
+                      </ul>
+                    </div>
+                  )}
                 </div>
               </div>
               <div className="space-y-4">
                 <label className="text-[10px] font-black text-brand-500 uppercase tracking-[0.3em] ml-2 block">Life Stage</label>
                 <div className="grid grid-cols-3 gap-3">
-                  {['Puppy', 'Adult', 'Senior'].map(stage => (
+                  {['Young', 'Adult', 'Senior'].map(stage => (
                     <button 
                       key={stage}
                       onClick={() => setFormData({...formData, age: stage})}
@@ -645,50 +735,62 @@ const Onboarding: React.FC<Props> = ({ onComplete }) => {
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                 <div className="space-y-3">
                   <label className="text-[10px] font-black text-brand-500 uppercase tracking-[0.3em] ml-2 block">Home Type</label>
-                  <select
-                    value={formData.housingType}
-                    onChange={(e) => setFormData({ ...formData, housingType: e.target.value as any })}
-                    className="w-full bg-brand-50 border-none rounded-2xl px-6 py-4 outline-none focus:ring-4 focus:ring-brand-500/10 text-sm font-bold"
-                  >
-                    <option>Apartment</option>
-                    <option>Independent House</option>
-                    <option>Farm / Villa</option>
-                  </select>
+                  <div className="relative">
+                    <select
+                      value={formData.housingType}
+                      onChange={(e) => setFormData({ ...formData, housingType: e.target.value as any })}
+                      className="w-full bg-brand-50 border-none rounded-2xl px-6 pr-12 py-4 outline-none focus:ring-4 focus:ring-brand-500/10 text-sm font-bold appearance-none"
+                    >
+                      <option>Apartment</option>
+                      <option>Independent House</option>
+                      <option>Farm / Villa</option>
+                    </select>
+                    <span className="pointer-events-none absolute right-5 top-1/2 -translate-y-1/2 text-brand-500/70">▾</span>
+                  </div>
                 </div>
                 <div className="space-y-3">
                   <label className="text-[10px] font-black text-brand-500 uppercase tracking-[0.3em] ml-2 block">Walk Surface</label>
-                  <select
-                    value={formData.walkSurface}
-                    onChange={(e) => setFormData({ ...formData, walkSurface: e.target.value as any })}
-                    className="w-full bg-brand-50 border-none rounded-2xl px-6 py-4 outline-none focus:ring-4 focus:ring-brand-500/10 text-sm font-bold"
-                  >
-                    <option>Asphalt</option>
-                    <option>Grass</option>
-                    <option>Mixed</option>
-                  </select>
+                  <div className="relative">
+                    <select
+                      value={formData.walkSurface}
+                      onChange={(e) => setFormData({ ...formData, walkSurface: e.target.value as any })}
+                      className="w-full bg-brand-50 border-none rounded-2xl px-6 pr-12 py-4 outline-none focus:ring-4 focus:ring-brand-500/10 text-sm font-bold appearance-none"
+                    >
+                      <option>Asphalt</option>
+                      <option>Grass</option>
+                      <option>Mixed</option>
+                    </select>
+                    <span className="pointer-events-none absolute right-5 top-1/2 -translate-y-1/2 text-brand-500/70">▾</span>
+                  </div>
                 </div>
                 <div className="space-y-3">
                   <label className="text-[10px] font-black text-brand-500 uppercase tracking-[0.3em] ml-2 block">Park Access</label>
-                  <select
-                    value={formData.parkAccess}
-                    onChange={(e) => setFormData({ ...formData, parkAccess: e.target.value as any })}
-                    className="w-full bg-brand-50 border-none rounded-2xl px-6 py-4 outline-none focus:ring-4 focus:ring-brand-500/10 text-sm font-bold"
-                  >
-                    <option>Yes</option>
-                    <option>No</option>
-                  </select>
+                  <div className="relative">
+                    <select
+                      value={formData.parkAccess}
+                      onChange={(e) => setFormData({ ...formData, parkAccess: e.target.value as any })}
+                      className="w-full bg-brand-50 border-none rounded-2xl px-6 pr-12 py-4 outline-none focus:ring-4 focus:ring-brand-500/10 text-sm font-bold appearance-none"
+                    >
+                      <option>Yes</option>
+                      <option>No</option>
+                    </select>
+                    <span className="pointer-events-none absolute right-5 top-1/2 -translate-y-1/2 text-brand-500/70">▾</span>
+                  </div>
                 </div>
                 <div className="space-y-3">
                   <label className="text-[10px] font-black text-brand-500 uppercase tracking-[0.3em] ml-2 block">Feeding Schedule</label>
-                  <select
-                    value={formData.feedingSchedule}
-                    onChange={(e) => setFormData({ ...formData, feedingSchedule: e.target.value as any })}
-                    className="w-full bg-brand-50 border-none rounded-2xl px-6 py-4 outline-none focus:ring-4 focus:ring-brand-500/10 text-sm font-bold"
-                  >
-                    <option>Once</option>
-                    <option>Twice</option>
-                    <option>Thrice</option>
-                  </select>
+                  <div className="relative">
+                    <select
+                      value={formData.feedingSchedule}
+                      onChange={(e) => setFormData({ ...formData, feedingSchedule: e.target.value as any })}
+                      className="w-full bg-brand-50 border-none rounded-2xl px-6 pr-12 py-4 outline-none focus:ring-4 focus:ring-brand-500/10 text-sm font-bold appearance-none"
+                    >
+                      <option>Once</option>
+                      <option>Twice</option>
+                      <option>Thrice</option>
+                    </select>
+                    <span className="pointer-events-none absolute right-5 top-1/2 -translate-y-1/2 text-brand-500/70">▾</span>
+                  </div>
                 </div>
               </div>
               <div className="space-y-3">
@@ -752,6 +854,34 @@ const Onboarding: React.FC<Props> = ({ onComplete }) => {
                       </button>
                     );
                   })}
+                </div>
+              </div>
+              <div className="space-y-4">
+                <label className="text-[10px] font-black text-brand-500 uppercase tracking-[0.3em] ml-2 block">Pet Photo (Optional)</label>
+                <div className="flex flex-col sm:flex-row items-start gap-4 bg-brand-50/60 border border-brand-100 rounded-[2.5rem] p-5">
+                  <div className="w-24 h-24 rounded-2xl bg-white border border-brand-100 overflow-hidden flex items-center justify-center text-3xl">
+                    {formData.photoUrl ? (
+                      <img src={formData.photoUrl} alt="Pet preview" className="w-full h-full object-cover" />
+                    ) : (
+                      <span>📷</span>
+                    )}
+                  </div>
+                  <div className="flex-1 space-y-3">
+                    <label className="inline-flex items-center gap-2 bg-brand-900 text-white px-5 py-3 rounded-2xl text-xs font-black uppercase tracking-widest cursor-pointer">
+                      Upload Photo
+                      <input type="file" accept="image/*" className="sr-only" onChange={handlePhotoChange} />
+                    </label>
+                    {formData.photoUrl && (
+                      <button
+                        type="button"
+                        onClick={() => setFormData(prev => ({ ...prev, photoUrl: '' }))}
+                        className="block text-[10px] font-black uppercase tracking-widest text-brand-500 hover:text-brand-900"
+                      >
+                        Remove Photo
+                      </button>
+                    )}
+                    <p className="text-[11px] text-brand-800/60 font-medium">JPG/PNG up to 2MB. This becomes your pet profile picture.</p>
+                  </div>
                 </div>
               </div>
               <button onClick={next} className="w-full bg-brand-500 text-white py-6 rounded-[2.5rem] font-black text-xl shadow-[0_20px_50px_rgba(245,146,69,0.3)] hover:bg-brand-600 transition-all active:scale-95">Initialize Profile</button>

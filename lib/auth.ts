@@ -14,6 +14,7 @@ const restoreActivities = (activities: UserState['activities']) =>
 export const getDefaultUserState = (): UserState => ({
   isLoggedIn: false,
   isPremium: false,
+  tier: 'free',
   credits: {
     nutri: 10,
     activity: 10,

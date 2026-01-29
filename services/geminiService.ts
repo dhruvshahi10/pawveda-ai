@@ -1,5 +1,5 @@
 import { apiClient } from "./apiClient";
-import { NewsInsight, NutriLensResult, PetData } from "../types";
+import { AiCheckupResponse, NewsInsight, NutriLensResult, PetData } from "../types";
 
 export interface PetCentre {
   name: string;
@@ -73,4 +73,29 @@ export const generatePetArt = async (prompt: string, size: string) => {
   } catch {
     return "";
   }
+};
+
+export const runAiCheckup = async (payload: {
+  petId?: string | null;
+  petType?: string;
+  breed: string;
+  age: string;
+  activityLevel: string;
+  dietType: string;
+  city: string;
+  outdoorExposure: string;
+  appetite: string;
+  waterIntake: string;
+  energy: string;
+  stool: string;
+  housingType: string;
+  walkSurface: string;
+  conditionsFlag: string;
+  conditionsText: string;
+}): Promise<AiCheckupResponse> => {
+  return apiClient.post<AiCheckupResponse>("/api/ai/checkup", payload, { auth: true });
+};
+
+export const fetchAiCheckupUsage = async (): Promise<AiCheckupResponse['usage']> => {
+  return apiClient.get<AiCheckupResponse['usage']>("/api/ai/checkup/usage", { auth: true });
 };
