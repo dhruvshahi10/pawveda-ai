@@ -1,13 +1,50 @@
 import { ChecklistHistoryPoint, ChecklistSection, DailyBrief, DailyBriefItem, MicroTip, NearbyService, PetData, PetEvent, SafetyRadar } from "../types";
+import { getSources } from "../lib/healthSources";
 import { apiClient } from "./apiClient";
 
 const MICRO_TIPS: MicroTip[] = [
-  { id: "tip-heat-paws", title: "Paw Heat Check", detail: "If the pavement is too hot for your hand, it’s too hot for paws. Choose shaded routes.", tags: ["safety", "walks"] },
-  { id: "tip-hydration", title: "Hydration Boost", detail: "Add a splash of unsalted bone broth or curd water to increase hydration on humid days.", tags: ["nutrition"] },
-  { id: "tip-ticks", title: "Tick Patrol", detail: "Inspect ears, paws, and neck after walks. Early tick removal prevents infections.", tags: ["health"] },
-  { id: "tip-deworm", title: "Deworming Rhythm", detail: "Adult dogs typically need deworming every 3 months. Confirm with your vet.", tags: ["health"] },
-  { id: "tip-ears", title: "Ear Care", detail: "Indie and floppy-eared breeds trap moisture. Dry ears after bath or rain.", tags: ["grooming"] },
-  { id: "tip-slow-feed", title: "Slow Feeding", detail: "Use a slow feeder or scatter feeding to reduce gulping and improve digestion.", tags: ["nutrition"] }
+  {
+    id: "tip-heat-paws",
+    title: "Paw Heat Check",
+    detail: "If pavement is too hot for your hand, it is too hot for paws. Choose shaded routes.",
+    tags: ["safety", "walks"],
+    sources: getSources(["aspca_heat"])
+  },
+  {
+    id: "tip-hydration",
+    title: "Hydration Boost",
+    detail: "Refresh water often and watch for dehydration signs during humid days.",
+    tags: ["nutrition"],
+    sources: getSources(["merck_dehydration"])
+  },
+  {
+    id: "tip-ticks",
+    title: "Tick Patrol",
+    detail: "Inspect ears, paws, and neck after walks. Early tick removal prevents infections.",
+    tags: ["health"],
+    sources: getSources(["avma_parasites"])
+  },
+  {
+    id: "tip-deworm",
+    title: "Deworming Rhythm",
+    detail: "Follow your vet’s recommended deworming cadence for adult pets.",
+    tags: ["health"],
+    sources: getSources(["avma_parasites"])
+  },
+  {
+    id: "tip-ears",
+    title: "Ear Care",
+    detail: "Dry ears after bath or rain to prevent moisture buildup.",
+    tags: ["grooming"],
+    sources: getSources(["avma_grooming"])
+  },
+  {
+    id: "tip-slow-feed",
+    title: "Slow Feeding",
+    detail: "Use a slow feeder to reduce gulping and improve digestion.",
+    tags: ["nutrition"],
+    sources: getSources(["wsava_nutrition"])
+  }
 ];
 
 const CITY_EVENTS: Record<string, PetEvent[]> = {
@@ -43,8 +80,8 @@ const buildChecklist = (petData: PetData): ChecklistSection[] => {
     petData.activityLevel === 'High'
       ? '60-90 min/day'
       : petData.activityLevel === 'Low'
-      ? '20-30 min/day'
-      : '30-60 min/day'
+        ? '20-30 min/day'
+        : '30-60 min/day'
   );
   const mealLabel = petData.dietType === 'Home Cooked'
     ? 'Balanced meal with protein + veg (no onion/garlic)'
@@ -143,27 +180,30 @@ const buildFallbackBrief = (city: string): DailyBrief => {
   const items: DailyBriefItem[] = [
     {
       id: "walk-index",
-      title: "Walking Index",
-      value: "78/100",
-      detail: "Prefer shaded routes; avoid peak noon walks.",
-      badge: "Climate Shield",
-      icon: "🌡️"
+      title: "Heat safety check",
+      value: "Check",
+      detail: "Prefer shaded routes and avoid peak heat walks.",
+      badge: "Safety",
+      icon: "🌡️",
+      sources: getSources(["aspca_heat"])
     },
     {
       id: "hydration",
-      title: "Hydration Risk",
-      value: "Moderate",
-      detail: "Add one extra water refill today.",
-      badge: "Nutrition",
-      icon: "💧"
+      title: "Hydration check",
+      value: "Check",
+      detail: "Refresh water often and watch for dehydration signs.",
+      badge: "Hydration",
+      icon: "💧",
+      sources: getSources(["merck_dehydration"])
     },
     {
       id: "air",
-      title: "Air Quality",
-      value: "Monitor",
-      detail: "Keep outdoor activity short in the afternoon.",
-      badge: "Safety",
-      icon: "🫧"
+      title: "Food safety reminder",
+      value: "Check",
+      detail: "Avoid onion, garlic, grapes, and chocolate in meals.",
+      badge: "Nutrition",
+      icon: "🥘",
+      sources: getSources(["aspca_foods"])
     }
   ];
   return { city, updatedAt: new Date().toISOString(), items };
@@ -184,19 +224,14 @@ export const fetchSafetyRadar = async (city: string): Promise<SafetyRadar> => {
   } catch {
     // ignore
   }
-  const day = new Date();
-  const month = day.getMonth();
-  const warmMonths = [3, 4, 5];
-  const monsoonMonths = [6, 7, 8];
-  const status = warmMonths.includes(month) ? "Heat Caution" : monsoonMonths.includes(month) ? "Monsoon Caution" : "Balanced";
   return {
     city,
     pm25: null,
-    airQualityLabel: "Unknown",
-    status,
-    advisory: "Monitor local conditions and keep walks short during peak hours.",
-    safeWindow: "6:00 AM - 9:00 AM",
-    updatedAt: day.toISOString()
+    airQualityLabel: "Unavailable",
+    status: "Data unavailable",
+    advisory: "AQI integration pending. Use local weather guidance until data is connected.",
+    safeWindow: "—",
+    updatedAt: new Date().toISOString()
   };
 };
 

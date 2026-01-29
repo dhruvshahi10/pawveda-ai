@@ -54,6 +54,38 @@ export interface MicroTip {
   title: string;
   detail: string;
   tags: string[];
+  sources?: Array<{ label: string; url: string }>;
+}
+
+export interface AiSourceRef {
+  id: string;
+  label: string;
+  url: string;
+}
+
+export interface AiCheckupSignal {
+  label: string;
+  detail: string;
+  sources: AiSourceRef[];
+}
+
+export interface AiCheckupUsage {
+  used: number;
+  limit: number;
+  remaining: number;
+  resetAt: string;
+}
+
+export interface AiCheckupResponse {
+  summary: string;
+  riskLevel: 'steady' | 'watch' | 'care';
+  focusSignals: AiCheckupSignal[];
+  watchlist: string[];
+  careChecklist: string[];
+  vetBrief: string;
+  sources: AiSourceRef[];
+  usage: AiCheckupUsage;
+  status: 'success' | 'fallback';
 }
 
 export interface PetEvent {
@@ -73,6 +105,7 @@ export interface DailyBriefItem {
   detail: string;
   badge: string;
   icon: string;
+  sources?: Array<{ label: string; url: string }>;
 }
 
 export interface DailyBrief {
@@ -208,6 +241,7 @@ export interface UserState {
   isPremium: boolean;
   credits: UserCredits;
   role?: 'pet-parent' | 'ngo';
+  tier?: 'free' | 'plus' | 'pro' | 'elite' | string;
   pet?: PetData;
   orgProfile?: {
     name: string;

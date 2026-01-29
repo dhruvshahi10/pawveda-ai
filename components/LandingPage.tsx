@@ -3,6 +3,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { getCountries, getCountryCallingCode, parsePhoneNumberFromString } from 'libphonenumber-js';
 import { apiClient } from '../services/apiClient';
+import { trackEvent } from '../lib/usageAnalytics';
 
 interface Props {
   onStart: (mode?: 'login' | 'signup') => void;
@@ -49,6 +50,7 @@ const LandingPage: React.FC<Props> = ({ onStart }) => {
   const [formError, setFormError] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isVisible, setIsVisible] = useState(false);
+  const [billingCycle, setBillingCycle] = useState<'monthly' | 'yearly'>('yearly');
 
   useEffect(() => {
     const quoteInterval = setInterval(() => {
@@ -210,26 +212,38 @@ const LandingPage: React.FC<Props> = ({ onStart }) => {
         <div className="max-w-7xl mx-auto grid lg:grid-cols-2 gap-20 items-center">
           <div className={`transition-all duration-1000 delay-300 transform ${isVisible ? 'translate-y-0 opacity-100' : 'translate-y-20 opacity-0'}`}>
             <span className="inline-block px-4 py-2 rounded-full bg-brand-100 text-brand-700 text-[9px] sm:text-[10px] font-black uppercase tracking-[0.18em] sm:tracking-[0.2em] mb-8 text-center leading-relaxed max-w-[24rem] sm:max-w-none">
-              Emergency vs Wait, Settled in 2 Minutes
+              Triage + NutriScan + Daily Briefs
             </span>
             <h1 className="text-6xl md:text-8xl font-display font-extrabold text-neutral-dark leading-[0.9] mb-10 tracking-tighter">
-              2-Minute Triage, <br/><span className="text-brand-500 italic font-serif">Vet-Ready Brief</span>
+              2-Minute Triage, <br /><span className="text-brand-500 italic font-serif">Vet-Ready Brief</span>
             </h1>
-            
-            <div className="mb-12 border-l-4 border-brand-500 pl-8">
+
+            <div className="mb-12 border-l-4 border-brand-500 pl-8 space-y-3">
               <p className="text-xl md:text-2xl text-brand-800/80 font-medium italic animate-reveal">
-                Know the next step fast, then walk into the clinic with a structured brief: symptoms, meds, allergies, and timeline.
+                Get guidance based on your answers, then walk into the clinic with a structured brief: symptoms, meds, allergies, and timeline.
+              </p>
+              <p className="text-xs text-brand-800/50 font-semibold uppercase tracking-widest">
+                Informational guidance only. Not a medical diagnosis. For emergencies, contact a vet.
               </p>
             </div>
 
-            <div className="flex flex-col sm:flex-row gap-8 items-center">
-              <button onClick={() => onStart('signup')} className="w-full sm:w-auto bg-brand-500 text-white px-14 py-6 rounded-[2.5rem] text-xl font-bold shadow-2xl shadow-brand-500/20 hover:bg-brand-600 transition-all active:scale-95 group">
-                Start Triage <span className="inline-block group-hover:translate-x-2 transition-transform ml-2">→</span>
-              </button>
+            <div className="flex flex-col gap-6">
+              <div className="flex flex-col sm:flex-row gap-6 items-center">
+                <button onClick={() => onStart('signup')} className="w-full sm:w-auto bg-brand-500 text-white px-14 py-6 rounded-[2.5rem] text-xl font-bold shadow-2xl shadow-brand-500/20 hover:bg-brand-600 transition-all active:scale-95 group">
+                  Start Triage <span className="inline-block group-hover:translate-x-2 transition-transform ml-2">→</span>
+                </button>
+                <Link
+                  to="/checkup"
+                  onClick={() => trackEvent('landing_checkup_cta')}
+                  className="w-full sm:w-auto border-2 border-brand-500 text-brand-500 px-12 py-6 rounded-[2.5rem] text-sm font-black uppercase tracking-widest shadow-lg hover:bg-brand-500 hover:text-white transition-all text-center"
+                >
+                  Free Pet Health Checkup
+                </Link>
+              </div>
               <div className="flex items-center gap-4">
                 <div className="flex -space-x-3">
                   {[1, 2, 3, 4].map(i => (
-                    <img key={i} src={`https://i.pravatar.cc/100?u=${i + 20}`} className="w-12 h-12 rounded-full border-4 border-[#FAF8F6] shadow-md" alt="User" loading="lazy" />
+                    <img key={i} src={`https://i.pravatar.cc/100?u=${i + 20}`} className="w-11 h-11 rounded-full border-4 border-[#FAF8F6] shadow-md" alt="User" loading="lazy" />
                   ))}
                 </div>
                 <div className="text-left">
@@ -242,8 +256,8 @@ const LandingPage: React.FC<Props> = ({ onStart }) => {
 
           <div className={`relative transition-all duration-1000 delay-500 transform ${isVisible ? 'scale-100 opacity-100' : 'scale-90 opacity-0'}`}>
             <div className="absolute inset-0 bg-brand-200/20 rounded-full blur-3xl animate-pulse -z-10"></div>
-            <img 
-              src="https://images.unsplash.com/photo-1598133894008-61f7fdb8cc3a?auto=format&fit=crop&q=80&w=1200" 
+            <img
+              src="https://images.unsplash.com/photo-1598133894008-61f7fdb8cc3a?auto=format&fit=crop&q=80&w=1200"
               className="rounded-[5rem] shadow-[0_40px_100px_-20px_rgba(82,49,23,0.3)] w-full object-cover aspect-[4/5] border-8 border-white hover:scale-[1.02] transition-transform duration-700"
               alt="Happy Indian dog receiving AI-powered pet care guidance from PawVeda"
             />
@@ -252,18 +266,18 @@ const LandingPage: React.FC<Props> = ({ onStart }) => {
               <div className="flex items-center gap-4 mb-4">
                 <div className="w-12 h-12 bg-brand-500 rounded-2xl flex items-center justify-center text-2xl text-white shadow-lg shadow-brand-500/30">🩺</div>
                 <div>
-                  <div className="text-[10px] font-black text-brand-500 uppercase tracking-widest">Triage Outcome</div>
-                  <div className="text-[9px] text-brand-300 uppercase">Vet Brief Ready</div>
+                  <div className="text-[10px] font-black text-brand-500 uppercase tracking-widest">Guidance Snapshot</div>
+                  <div className="text-[9px] text-brand-300 uppercase">Brief Ready</div>
                 </div>
               </div>
-              <p className="text-xs font-bold text-neutral-dark leading-relaxed italic">"Visit soon. Bring the brief with symptoms, meds, and timeline."</p>
+              <p className="text-xs font-bold text-neutral-dark leading-relaxed italic">"Suggested: visit soon. Share the brief with your vet."</p>
             </div>
           </div>
         </div>
-      </section>
+      </section >
 
       {/* Value Proposition */}
-      <section className="py-32 bg-white px-6">
+      < section className="py-32 bg-white px-6" >
         <div className="max-w-7xl mx-auto">
           <div className="text-center mb-16">
             <span className="text-brand-500 font-black text-[10px] uppercase tracking-[0.3em] mb-4 block">Pawveda Intelligence</span>
@@ -275,12 +289,12 @@ const LandingPage: React.FC<Props> = ({ onStart }) => {
                 id: 'triage',
                 icon: '🩺',
                 title: '2-Minute Triage',
-                summary: 'Answer a few questions to decide: emergency, visit soon, or monitor.',
-                highlight: 'Emergency vs wait, fast',
-                bullets: ['Symptom-led questions', 'Clear urgency tier', 'Next-step actions'],
+                summary: 'Answer a few questions to get urgency guidance: emergency, visit soon, or monitor.',
+                highlight: 'Logic-based guidance (Not AI Diagnosis)',
+                bullets: ['Symptom-led questions', 'Red-flag prompts', 'Next-step actions'],
                 metrics: [
                   { label: 'Time', value: '2 mins' },
-                  { label: 'Outcome', value: 'Visit soon' },
+                  { label: 'Outcome', value: 'Guidance' },
                   { label: 'Next', value: 'Share brief' }
                 ]
               },
@@ -298,14 +312,40 @@ const LandingPage: React.FC<Props> = ({ onStart }) => {
                 ]
               },
               {
+                id: 'daily-brief',
+                icon: '🗞️',
+                title: 'Daily Brief',
+                summary: 'A bite-size snapshot of safety, nutrition, and habits for today.',
+                highlight: 'Today\'s care, at a glance',
+                bullets: ['Local safety alerts', 'Habit streaks', 'Goal-focused tips'],
+                metrics: [
+                  { label: 'Tips', value: '3 insights' },
+                  { label: 'Focus', value: 'Hydration' },
+                  { label: 'Streak', value: '4 days' }
+                ]
+              },
+              {
+                id: 'nutriscan',
+                icon: '🥘',
+                title: 'NutriScan',
+                summary: 'Scan meals or ingredients for Indian food safety and portion cues.',
+                highlight: 'Powered by Gemini AI',
+                bullets: ['Ingredient risk checks', 'Portion guidance', 'Unsafe food alerts'],
+                metrics: [
+                  { label: 'AI Model', value: 'Gemini' },
+                  { label: 'Safe', value: '4 items' },
+                  { label: 'Avoid', value: 'Onion' }
+                ]
+              },
+              {
                 id: 'safety-radar',
                 icon: '🧭',
                 title: 'Safety Radar',
                 summary: 'Heat, humidity, and air alerts tailored to your city.',
-                highlight: 'Live risk signals',
+                highlight: 'Regional Estimates (Preview)',
                 bullets: ['Heatwave warnings', 'Air-quality advisories', 'Paw-surface alerts'],
                 metrics: [
-                  { label: 'PM2.5', value: '86' },
+                  { label: 'Source', value: 'Regional' },
                   { label: 'Heat', value: 'High' },
                   { label: 'Safe Walk', value: '6:15 AM' }
                 ]
@@ -347,30 +387,30 @@ const LandingPage: React.FC<Props> = ({ onStart }) => {
                     const microCopy = index % 2 === 0 ? 'Reveal' : 'Explore';
                     const isActive = activeFeature === item.id;
                     return (
-                    <button
-                      key={item.id}
-                      type="button"
-                      onClick={() => setActiveFeature(prev => (prev === item.id ? null : item.id))}
-                      className={`min-w-[240px] snap-center text-left rounded-[2.5rem] p-6 border transition-all ${
-                        isActive
+                      <button
+                        key={item.id}
+                        type="button"
+                        onClick={() => setActiveFeature(prev => (prev === item.id ? null : item.id))}
+                        className={`min-w-[240px] snap-center text-left rounded-[2.5rem] p-6 border transition-all ${isActive
                           ? 'bg-brand-900 text-white border-brand-900 shadow-2xl'
                           : 'bg-brand-50 border-brand-100 hover:border-brand-500/60'
-                      }`}
-                    >
-                      <div className="flex items-center justify-between">
-                        <span className="text-3xl">{item.icon}</span>
-                        <span className={`text-[9px] font-black uppercase tracking-[0.3em] ${isActive ? 'text-brand-200' : 'text-brand-400'}`}>
-                          {microCopy}
-                        </span>
-                      </div>
-                      <h3 className={`text-xl font-display font-black mt-4 ${isActive ? 'text-white' : 'text-brand-900'}`}>
-                        {item.title}
-                      </h3>
-                      <p className={`text-sm mt-3 ${isActive ? 'text-white/70' : 'text-brand-800/60'}`}>
-                        {item.summary}
-                      </p>
-                    </button>
-                  )})}
+                          }`}
+                      >
+                        <div className="flex items-center justify-between">
+                          <span className="text-3xl">{item.icon}</span>
+                          <span className={`text-[9px] font-black uppercase tracking-[0.3em] ${isActive ? 'text-brand-200' : 'text-brand-400'}`}>
+                            {microCopy}
+                          </span>
+                        </div>
+                        <h3 className={`text-xl font-display font-black mt-4 ${isActive ? 'text-white' : 'text-brand-900'}`}>
+                          {item.title}
+                        </h3>
+                        <p className={`text-sm mt-3 ${isActive ? 'text-white/70' : 'text-brand-800/60'}`}>
+                          {item.summary}
+                        </p>
+                      </button>
+                    )
+                  })}
                 </div>
 
                 <div
@@ -506,7 +546,7 @@ const LandingPage: React.FC<Props> = ({ onStart }) => {
             );
           })()}
         </div>
-      </section>
+      </section >
 
       <div className="bg-white">
         <div className="overflow-hidden border-y border-brand-100/50">
@@ -530,13 +570,13 @@ const LandingPage: React.FC<Props> = ({ onStart }) => {
         <div className="max-w-7xl mx-auto space-y-16">
           <div className="text-center">
             <span className="text-brand-500 font-black text-[10px] uppercase tracking-[0.3em] mb-4 block">Loved by Parents</span>
-            <h2 className="text-4xl md:text-5xl font-display font-black text-brand-900">Triage Stories That Saved Time and Money</h2>
+            <h2 className="text-4xl md:text-5xl font-display font-black text-brand-900">Parents on PawVeda</h2>
           </div>
           <div className="grid md:grid-cols-3 gap-10">
             {[
-              { name: "Aarav & Coco", quote: "The triage said monitor instead of ER. We saved Rs 4,200 and a midnight panic.", city: "Delhi" },
-              { name: "Neha & Luna", quote: "It flagged heat stress early. We went in fast and avoided a worse situation.", city: "Bengaluru" },
-              { name: "Rishi & Simba", quote: "The vet brief saved 15 minutes at the clinic. The doctor loved the timeline.", city: "Mumbai" }
+              { name: "Aarav & Coco", quote: "The triage helped us decide to monitor overnight and follow up with our vet.", city: "Delhi" },
+              { name: "Neha & Luna", quote: "Safety radar nudged us to move walks earlier during a heat wave.", city: "Bengaluru" },
+              { name: "Rishi & Simba", quote: "The vet brief kept every symptom and med in one clean timeline.", city: "Mumbai" }
             ].map((item) => (
               <div key={item.name} className="bg-white p-8 rounded-[3rem] border border-brand-100 shadow-sm hover:shadow-xl transition-all">
                 <p className="text-lg font-display font-black text-brand-900 mb-4">“{item.quote}”</p>
@@ -674,32 +714,120 @@ const LandingPage: React.FC<Props> = ({ onStart }) => {
         </div>
       </div>
 
+      {/* Trust & Safety Section */}
+      <section className="py-24 px-6 bg-brand-900 text-brand-100">
+        <div className="max-w-4xl mx-auto text-center space-y-8">
+          <div className="inline-block p-4 rounded-full bg-brand-800 mb-4">
+            <span className="text-3xl">🛡️</span>
+          </div>
+          <h2 className="text-3xl md:text-4xl font-display font-black text-white">Trust & Safety First</h2>
+          <p className="text-lg text-brand-200/80 leading-relaxed">
+            PawVeda provides <strong>informational guidance</strong> based on veterinary standards. We do <strong>not</strong> provide medical diagnoses or prescriptions.
+          </p>
+          <div className="grid md:grid-cols-2 gap-8 text-left mt-12">
+            <div className="bg-brand-800/50 p-8 rounded-3xl border border-brand-700">
+              <h3 className="font-bold text-white mb-2">Guidance, Not Diagnosis</h3>
+              <p className="text-sm text-brand-200/70">
+                Our Triage tools align with
+                <a href="https://www.avma.org/resources-tools/animal-health-and-welfare/telehealth-telemedicine-veterinary-practice" target="_blank" rel="noreferrer" className="text-brand-400 hover:text-white ml-1 underline">AVMA Guidelines</a>
+                and
+                <a href="https://www.niti.gov.in/sites/default/files/2020-03/Telemedicine-Practice-Guidelines.pdf" target="_blank" rel="noreferrer" className="text-brand-400 hover:text-white ml-1 underline">NITI Aayog (India)</a>
+                standards. We help you decide <em>when</em> to see a vet, but only a verified RVP (Registered Veterinary Practitioner) can diagnose your pet.
+              </p>
+            </div>
+            <div className="bg-brand-800/50 p-8 rounded-3xl border border-brand-700">
+              <h3 className="font-bold text-white mb-2">Data Transparency</h3>
+              <p className="text-sm text-brand-200/70">
+                <strong>Safety Radar:</strong> Uses regional weather patterns (estimates). Always verify locally.<br />
+                <strong>NutriScan:</strong> Powered by Gemini AI. While accurate, always check visually.<br />
+                <strong>Toxic Foods:</strong> Based on <a href="https://www.aspcapro.org/resource/people-foods-avoid-feeding-your-pets" target="_blank" rel="noreferrer" className="text-brand-400 hover:text-white underline">ASPCA Poison Control</a> data.
+              </p>
+            </div>
+          </div>
+        </div>
+      </section>
+
       {/* Pricing Section */}
       <section className="py-40 px-6 max-w-7xl mx-auto">
         <div className="text-center mb-24">
           <h2 className="text-5xl md:text-7xl font-display font-black mb-6 tracking-tighter">Premium Care. <span className="text-brand-500">No Compromise.</span></h2>
           <p className="text-brand-800/40 text-xl font-medium">Simple, transparent pricing for Indian households.</p>
+          <div className="mt-8 flex flex-col items-center gap-3">
+            <div className="inline-flex items-center gap-2 rounded-full border border-brand-200 bg-white p-2 shadow-sm">
+              <button
+                type="button"
+                onClick={() => setBillingCycle('monthly')}
+                className={`px-6 py-2 rounded-full text-xs font-black uppercase tracking-widest transition-all ${
+                  billingCycle === 'monthly' ? 'bg-brand-900 text-white' : 'text-brand-700 hover:text-brand-900'
+                }`}
+              >
+                Monthly
+              </button>
+              <button
+                type="button"
+                onClick={() => setBillingCycle('yearly')}
+                className={`px-6 py-2 rounded-full text-xs font-black uppercase tracking-widest transition-all ${
+                  billingCycle === 'yearly' ? 'bg-brand-500 text-white' : 'text-brand-700 hover:text-brand-900'
+                }`}
+              >
+                Yearly
+              </button>
+            </div>
+            <p className="text-[11px] font-semibold text-brand-500 uppercase tracking-widest">Save 30–33% with yearly billing</p>
+          </div>
         </div>
-        
+
         <div className="grid md:grid-cols-3 gap-10 max-w-6xl mx-auto">
           {[
             {
-              name: "Beta",
-              price: "₹19",
+              name: "Plus",
+              monthlyPrice: "₹49",
+              yearlyPrice: "₹399",
+              yearlyNote: "₹33/mo billed yearly",
+              discount: "Save 32%",
               badge: "Early Access",
-              perks: ["Triage preview", "Daily Pet Brief", "Basic Checklists"]
+              perks: [
+                "2 triage checks / week",
+                "AI checkups: 2 / month",
+                "Daily Brief highlights",
+                "Basic checklists + reminders",
+                "Community tips feed",
+                "Adoption Hub access"
+              ]
             },
             {
               name: "Pro Parent",
-              price: "₹299",
+              monthlyPrice: "₹299",
+              yearlyPrice: "₹2,499",
+              yearlyNote: "₹208/mo billed yearly",
+              discount: "Save 30%",
               badge: "Popular",
-              perks: ["Unlimited Triage", "Vet-Ready Briefs", "Safety Radar", "Nearby Services"]
+              perks: [
+                "Unlimited triage guidance",
+                "Vet-Ready briefs + symptom timeline",
+                "Safety Radar + local alerts",
+                "NutriScan (meal & ingredient checks)",
+                "AI checkups: 6 / month",
+                "Nearby services directory",
+                "Care timeline (meds + visits)",
+                "Daily Brief + micro tips"
+              ]
             },
             {
               name: "Elite Parent",
-              price: "₹399",
+              monthlyPrice: "₹499",
+              yearlyPrice: "₹3,999",
+              yearlyNote: "₹333/mo billed yearly",
+              discount: "Save 33%",
               badge: "Premium",
-              perks: ["Priority Triage", "Chronic Care Tracking", "Care Reminders", "Advanced Insights"]
+              perks: [
+                "Everything in Pro Parent",
+                "Advanced insights dashboards",
+                "Nutrition + activity logs",
+                "Custom reminders + checklists",
+                "AI checkups: 12 / month",
+                "Extended vet brief history (90 days)"
+              ]
             }
           ].map((plan) => (
             <div key={plan.name} className={`p-10 rounded-[3.5rem] ${plan.name === "Elite Parent" ? "bg-brand-900 text-white" : "bg-white border-2 border-brand-100"} shadow-lg relative overflow-hidden`}>
@@ -708,8 +836,13 @@ const LandingPage: React.FC<Props> = ({ onStart }) => {
               </div>
               <h3 className={`text-2xl font-bold uppercase tracking-widest ${plan.name === "Elite Parent" ? "text-white" : "text-brand-900"}`}>{plan.name}</h3>
               <div className={`text-5xl font-display font-black mt-4 ${plan.name === "Elite Parent" ? "text-white" : "text-brand-900"}`}>
-                {plan.price}
-                <span className={`text-base font-normal opacity-70 ml-2`}>/mo</span>
+                {billingCycle === 'monthly' ? plan.monthlyPrice : plan.yearlyPrice}
+                <span className={`text-base font-normal opacity-70 ml-2`}>
+                  {billingCycle === 'monthly' ? '/mo' : '/yr'}
+                </span>
+              </div>
+              <div className={`mt-2 text-xs font-semibold ${plan.name === "Elite Parent" ? "text-white/70" : "text-brand-600"}`}>
+                {billingCycle === 'monthly' ? plan.discount : plan.yearlyNote}
               </div>
               <ul className={`mt-8 space-y-4 text-base ${plan.name === "Elite Parent" ? "text-white/70" : "text-brand-800/60"}`}>
                 {plan.perks.map((perk) => (
@@ -720,12 +853,13 @@ const LandingPage: React.FC<Props> = ({ onStart }) => {
                 ))}
               </ul>
               <button onClick={() => onStart('signup')} className={`w-full mt-10 py-4 rounded-[2rem] font-black text-sm uppercase tracking-widest ${plan.name === "Elite Parent" ? "bg-brand-500 text-white" : "border-2 border-brand-500 text-brand-500 hover:bg-brand-500 hover:text-white"} transition-all`}>
-                Choose {plan.name}
+                {plan.name === "Plus" ? "Join Waitlist" : "Join Waitlist"}
+                <span className="block text-[10px] opacity-70 mt-1 font-normal capitalize">Coming Soon</span>
               </button>
             </div>
           ))}
         </div>
-      </section>
+      </section >
 
       <div className="bg-[#FAF8F6]">
         <div className="overflow-hidden border-y border-brand-200/40">
@@ -749,11 +883,11 @@ const LandingPage: React.FC<Props> = ({ onStart }) => {
         <div className="max-w-6xl mx-auto bg-white rounded-[5rem] shadow-2xl overflow-hidden grid md:grid-cols-2 relative group border border-white">
           <div className="p-16 md:p-24 flex flex-col justify-center">
             <span className="text-brand-500 font-black text-[10px] uppercase tracking-[0.3em] mb-6 block">Try For Free</span>
-            <h2 className="text-5xl font-display font-black text-brand-900 mb-8 leading-[1.1] tracking-tight">Try PawVeda for free. <br/><span className="text-brand-500">Shape what we ship.</span></h2>
+            <h2 className="text-5xl font-display font-black text-brand-900 mb-8 leading-[1.1] tracking-tight">Try PawVeda for free. <br /><span className="text-brand-500">Shape what we ship.</span></h2>
             <p className="text-brand-800/60 text-xl mb-12 leading-relaxed">
               Tell us what you want most and we will send your free "Desi Food Toxicity Guide" plus early access.
             </p>
-            
+
             {formSubmitted ? (
               <div className="animate-in fade-in zoom-in-95 duration-700 bg-brand-50/50 p-12 rounded-[4rem] text-center border-4 border-dashed border-brand-100">
                 <div className="text-6xl mb-6 scale-animate">🐾</div>
@@ -763,10 +897,10 @@ const LandingPage: React.FC<Props> = ({ onStart }) => {
             ) : (
               <form onSubmit={handleCtaSubmit} className="space-y-6">
                 <div className="relative">
-                  <input 
+                  <input
                     required
-                    type="email" 
-                    placeholder="Email Address" 
+                    type="email"
+                    placeholder="Email Address"
                     className="w-full bg-[#FAF8F6] border-2 border-transparent focus:border-brand-500/30 rounded-[2.5rem] px-10 py-6 outline-none transition-all text-lg font-medium shadow-inner"
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
@@ -774,7 +908,7 @@ const LandingPage: React.FC<Props> = ({ onStart }) => {
                 </div>
                 <div className="grid gap-4 md:grid-cols-[1.1fr_1.5fr]">
                   <div className="relative">
-                    <select 
+                    <select
                       required
                       className="w-full bg-[#FAF8F6] border-2 border-transparent focus:border-brand-500/30 rounded-[2.5rem] px-8 py-6 outline-none transition-all text-lg font-medium shadow-inner appearance-none cursor-pointer"
                       value={phoneCountry}
@@ -792,10 +926,10 @@ const LandingPage: React.FC<Props> = ({ onStart }) => {
                     <span className="absolute left-8 top-1/2 -translate-y-1/2 text-sm font-bold text-brand-800/50">
                       +{selectedCountry?.callingCode || ''}
                     </span>
-                    <input 
+                    <input
                       required
-                      type="tel" 
-                      placeholder="Contact Number" 
+                      type="tel"
+                      placeholder="Contact Number"
                       className="w-full bg-[#FAF8F6] border-2 border-transparent focus:border-brand-500/30 rounded-[2.5rem] px-10 py-6 pl-20 outline-none transition-all text-lg font-medium shadow-inner"
                       value={phoneNumber}
                       onChange={(e) => setPhoneNumber(e.target.value)}
@@ -811,26 +945,23 @@ const LandingPage: React.FC<Props> = ({ onStart }) => {
                     <button
                       type="button"
                       onClick={() => setInterestOpen(prev => !prev)}
-                      className={`w-full flex items-center justify-between gap-4 rounded-[2.5rem] border-2 px-8 py-5 text-left text-sm font-semibold transition-all ${
-                        interestOpen ? 'border-brand-500/60 shadow-lg bg-white' : 'border-brand-100 bg-[#FAF8F6]'
-                      }`}
+                      className={`w-full flex items-center justify-between gap-4 rounded-[2.5rem] border-2 px-8 py-5 text-left text-sm font-semibold transition-all ${interestOpen ? 'border-brand-500/60 shadow-lg bg-white' : 'border-brand-100 bg-[#FAF8F6]'
+                        }`}
                       aria-expanded={interestOpen}
                     >
                       <span className="text-brand-900">
                         {premiumInterest.length ? `${premiumInterest.length} selected` : 'Select features'}
                       </span>
                       <span
-                        className={`text-xs font-black uppercase tracking-[0.3em] text-brand-500 transition-transform ${
-                          interestOpen ? 'rotate-180' : ''
-                        }`}
+                        className={`text-xs font-black uppercase tracking-[0.3em] text-brand-500 transition-transform ${interestOpen ? 'rotate-180' : ''
+                          }`}
                       >
                         ▼
                       </span>
                     </button>
                     <div
-                      className={`mt-3 overflow-hidden rounded-[2rem] border border-brand-100 bg-white shadow-2xl transition-all duration-300 ${
-                        interestOpen ? 'max-h-80 opacity-100 translate-y-0' : 'max-h-0 opacity-0 -translate-y-2'
-                      }`}
+                      className={`mt-3 overflow-hidden rounded-[2rem] border border-brand-100 bg-white shadow-2xl transition-all duration-300 ${interestOpen ? 'max-h-80 opacity-100 translate-y-0' : 'max-h-0 opacity-0 -translate-y-2'
+                        }`}
                     >
                       <div className="p-4 space-y-2 max-h-64 overflow-y-auto">
                         {interestOptions.map(option => {
@@ -838,9 +969,8 @@ const LandingPage: React.FC<Props> = ({ onStart }) => {
                           return (
                             <label
                               key={option}
-                              className={`flex items-center justify-between gap-4 rounded-[1.5rem] px-4 py-3 text-sm font-semibold transition-colors ${
-                                selected ? 'bg-brand-900 text-white' : 'bg-brand-50 text-brand-900 hover:bg-brand-100/60'
-                              }`}
+                              className={`flex items-center justify-between gap-4 rounded-[1.5rem] px-4 py-3 text-sm font-semibold transition-colors ${selected ? 'bg-brand-900 text-white' : 'bg-brand-50 text-brand-900 hover:bg-brand-100/60'
+                                }`}
                             >
                               <span>{option}</span>
                               <input
@@ -859,7 +989,7 @@ const LandingPage: React.FC<Props> = ({ onStart }) => {
                 {formError && (
                   <p className="text-sm text-red-500 font-semibold text-center">{formError}</p>
                 )}
-                <button 
+                <button
                   type="submit"
                   disabled={isSubmitting}
                   className="w-full bg-brand-900 text-white py-6 rounded-[2.5rem] font-black text-xl shadow-2xl hover:bg-brand-500 transition-all active:scale-95 transform hover:-translate-y-1 disabled:opacity-60 disabled:cursor-not-allowed"
@@ -869,11 +999,11 @@ const LandingPage: React.FC<Props> = ({ onStart }) => {
               </form>
             )}
           </div>
-          
+
           <div className="relative hidden md:block overflow-hidden">
-            <img 
-              src="https://images.unsplash.com/photo-1541364983171-a8ba01e95cfc?auto=format&fit=crop&q=80&w=1200" 
-              className="absolute inset-0 w-full h-full object-cover group-hover:scale-110 transition-transform duration-[5s]" 
+            <img
+              src="https://images.unsplash.com/photo-1541364983171-a8ba01e95cfc?auto=format&fit=crop&q=80&w=1200"
+              className="absolute inset-0 w-full h-full object-cover group-hover:scale-110 transition-transform duration-[5s]"
               alt="Interest Form Background"
               loading="lazy"
             />
@@ -1021,7 +1151,7 @@ const LandingPage: React.FC<Props> = ({ onStart }) => {
           50% { transform: scale(1.2); opacity: 1; }
         }
       `}</style>
-    </div>
+    </div >
   );
 };
 

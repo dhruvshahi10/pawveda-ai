@@ -2,6 +2,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { apiClient } from '../services/apiClient';
 import { coerceRole, setAuthSession } from '../lib/auth';
+import { API_BASE_URL } from '../lib/config';
 
 type AuthMode = 'login' | 'signup' | 'forgot';
 
@@ -135,6 +136,13 @@ const Auth: React.FC<Props> = ({ onComplete, onBack, initialMode = 'signup', onM
     }
   };
 
+  const handleSocialAuth = (provider: 'google' | 'apple') => {
+    const params = new URLSearchParams();
+    params.set('mode', mode);
+    params.set('role', role);
+    window.location.href = `${API_BASE_URL}/api/auth/oauth/${provider}?${params.toString()}`;
+  };
+
   return (
     <div className="min-h-screen bg-brand-50 flex flex-col p-6 items-center justify-center">
       {toast && (
@@ -150,99 +158,132 @@ const Auth: React.FC<Props> = ({ onComplete, onBack, initialMode = 'signup', onM
           {toast.message}
         </div>
       )}
-      <button onClick={onBack} className="absolute top-8 left-8 text-brand-900 font-bold flex items-center gap-2 group">
-        <span className="group-hover:-translate-x-1 transition-transform">←</span> Back
-      </button>
+      <div className="w-full max-w-md">
+        <div className="relative bg-white rounded-[3rem] shadow-2xl p-10 animate-in fade-in zoom-in-95 duration-500">
+          <button
+            onClick={onBack}
+            className="absolute top-6 left-6 text-brand-900 font-bold text-sm flex items-center gap-2 group"
+          >
+            <span className="group-hover:-translate-x-1 transition-transform">←</span> Back
+          </button>
+          <div className="text-center mb-10">
+            <div className="w-16 h-16 bg-brand-900 rounded-[1.5rem] flex items-center justify-center text-white font-display font-bold text-3xl mx-auto mb-6 shadow-xl">P</div>
+            <h2 className="text-3xl font-display font-black text-brand-900">
+              {mode === 'signup' ? 'Join the Pack' : mode === 'login' ? 'Welcome Back' : 'Reset Access'}
+            </h2>
+            <p className="text-brand-800/50 mt-2">
+              {mode === 'signup'
+                ? 'Start your journey to better pet care.'
+                : mode === 'login'
+                ? 'Ready to check on your companion?'
+                : 'We will send a reset link to your email.'}
+            </p>
+          </div>
 
-      <div className="w-full max-w-md bg-white rounded-[3rem] shadow-2xl p-10 animate-in fade-in zoom-in-95 duration-500">
-        <div className="text-center mb-10">
-          <div className="w-16 h-16 bg-brand-900 rounded-[1.5rem] flex items-center justify-center text-white font-display font-bold text-3xl mx-auto mb-6 shadow-xl">P</div>
-          <h2 className="text-3xl font-display font-black text-brand-900">
-            {mode === 'signup' ? 'Join the Pack' : mode === 'login' ? 'Welcome Back' : 'Reset Access'}
-          </h2>
-          <p className="text-brand-800/50 mt-2">
-            {mode === 'signup'
-              ? 'Start your journey to better pet care.'
-              : mode === 'login'
-              ? 'Ready to check on your companion?'
-              : 'We will send a reset link to your email.'}
-          </p>
-        </div>
-
-        <form onSubmit={handleSubmit} className="space-y-6">
-          <div className="space-y-4">
+          <form onSubmit={handleSubmit} className="space-y-6">
             {mode !== 'forgot' && (
-              <div className="grid grid-cols-2 gap-3">
-                {[
-                  { id: 'pet-parent', label: 'Pet Parent' },
-                  { id: 'ngo', label: 'NGO / General' }
-                ].map(option => (
-                  <button
-                    key={option.id}
-                    type="button"
-                    onClick={() => setRole(option.id as 'pet-parent' | 'ngo')}
-                    className={`py-3 rounded-2xl border-2 text-[10px] font-black uppercase tracking-widest transition-all ${
-                      role === option.id ? 'bg-brand-900 text-white border-brand-900' : 'bg-white text-brand-900 border-brand-50 hover:border-brand-100'
-                    }`}
-                  >
-                    {option.label}
-                  </button>
-                ))}
+              <div className="space-y-3">
+                <button
+                  type="button"
+                  onClick={() => handleSocialAuth('google')}
+                  className="w-full bg-white border border-[#dadce0] text-[#3c4043] py-4 rounded-[2rem] font-semibold text-sm shadow-sm hover:bg-[#f7f8f8] transition-all flex items-center justify-center gap-3"
+                >
+                  <svg width="18" height="18" viewBox="0 0 18 18" aria-hidden="true">
+                    <path fill="#EA4335" d="M9.2 7.3v3.4h4.7c-.2 1.1-1.3 3.2-4.7 3.2A4.8 4.8 0 0 1 9.2 4a4.4 4.4 0 0 1 3 1.2l2-2A7.2 7.2 0 0 0 9.2 1 8 8 0 0 0 1 9a8 8 0 0 0 8.2 8c4.7 0 7.8-3.3 7.8-7.9 0-.5-.1-.9-.1-1.3H9.2z"/>
+                    <path fill="#34A853" d="M2.9 5.2l2.7 2A4.8 4.8 0 0 1 9.2 4a4.4 4.4 0 0 1 3 1.2l2-2A7.2 7.2 0 0 0 9.2 1a8 8 0 0 0-6.3 4.2z"/>
+                    <path fill="#FBBC05" d="M1 9c0 1.3.3 2.5.9 3.6l2.9-2.3A4.8 4.8 0 0 1 4.4 9c0-.5.1-1 .2-1.4L1.7 5.2A8 8 0 0 0 1 9z"/>
+                    <path fill="#4285F4" d="M9.2 17c2.2 0 4-0.7 5.4-2l-2.5-2.1c-.7.5-1.6.9-2.9.9A4.8 4.8 0 0 1 4.8 10l-2.9 2.3A8 8 0 0 0 9.2 17z"/>
+                  </svg>
+                  Continue with Google
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleSocialAuth('apple')}
+                  className="w-full bg-black text-white py-4 rounded-[2rem] font-bold text-sm shadow-lg hover:bg-black/90 transition-all flex items-center justify-center gap-3"
+                >
+                  <span className="text-lg leading-none"></span>
+                  Continue with Apple
+                </button>
+                <div className="flex items-center gap-3">
+                  <span className="h-px flex-1 bg-brand-100" />
+                  <span className="text-[10px] font-black uppercase tracking-[0.3em] text-brand-400">or</span>
+                  <span className="h-px flex-1 bg-brand-100" />
+                </div>
               </div>
             )}
-            <input 
-              required
-              type="email" 
-              placeholder="Email Address" 
-              className="w-full bg-brand-50/50 border border-brand-100 rounded-2xl px-6 py-4 outline-none focus:ring-2 focus:ring-brand-500 transition-all"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-            />
-            {mode === 'signup' && (
-              <>
-                <input 
-                  required
-                  type="text" 
-                  placeholder="Full Name" 
-                  className="w-full bg-brand-50/50 border border-brand-100 rounded-2xl px-6 py-4 outline-none focus:ring-2 focus:ring-brand-500 transition-all"
-                  value={fullName}
-                  onChange={(e) => setFullName(e.target.value)}
-                />
-                <div className="flex gap-3">
-                <select
-                  value={countryCode}
-                  onChange={(e) => setCountryCode(e.target.value)}
-                  className="bg-brand-50/50 border border-brand-100 rounded-2xl px-4 py-4 outline-none focus:ring-2 focus:ring-brand-500 transition-all"
-                >
-                  <option value="+91">🇮🇳 +91</option>
-                  <option value="+1">🇺🇸 +1</option>
-                  <option value="+44">🇬🇧 +44</option>
-                  <option value="+65">🇸🇬 +65</option>
-                </select>
-                <input
-                  required
-                  type="tel"
-                  inputMode="numeric"
-                  pattern="[0-9]{6,15}"
-                  placeholder="Mobile Number"
-                  className="flex-1 bg-brand-50/50 border border-brand-100 rounded-2xl px-6 py-4 outline-none focus:ring-2 focus:ring-brand-500 transition-all"
-                  value={phoneNumber}
-                  onChange={(e) => setPhoneNumber(e.target.value)}
-                />
+            <div className="space-y-4">
+              {mode !== 'forgot' && (
+                <div className="grid grid-cols-2 gap-3">
+                  {[
+                    { id: 'pet-parent', label: 'Pet Parent' },
+                    { id: 'ngo', label: 'NGO / General' }
+                  ].map(option => (
+                    <button
+                      key={option.id}
+                      type="button"
+                      onClick={() => setRole(option.id as 'pet-parent' | 'ngo')}
+                      className={`py-3 rounded-2xl border-2 text-[10px] font-black uppercase tracking-widest transition-all ${
+                        role === option.id ? 'bg-brand-900 text-white border-brand-900' : 'bg-white text-brand-900 border-brand-50 hover:border-brand-100'
+                      }`}
+                    >
+                      {option.label}
+                    </button>
+                  ))}
                 </div>
-              </>
-            )}
-            {mode !== 'forgot' && (
+              )}
               <input 
                 required
-                type="password" 
-                placeholder="Password" 
+                type="email" 
+                placeholder="Email Address" 
                 className="w-full bg-brand-50/50 border border-brand-100 rounded-2xl px-6 py-4 outline-none focus:ring-2 focus:ring-brand-500 transition-all"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
               />
-            )}
-          </div>
+              {mode === 'signup' && (
+                <>
+                  <input 
+                    required
+                    type="text" 
+                    placeholder="Full Name" 
+                    className="w-full bg-brand-50/50 border border-brand-100 rounded-2xl px-6 py-4 outline-none focus:ring-2 focus:ring-brand-500 transition-all"
+                    value={fullName}
+                    onChange={(e) => setFullName(e.target.value)}
+                  />
+                  <div className="flex gap-3">
+                    <select
+                      value={countryCode}
+                      onChange={(e) => setCountryCode(e.target.value)}
+                      className="w-28 shrink-0 bg-brand-50/50 border border-brand-100 rounded-2xl px-4 py-4 outline-none focus:ring-2 focus:ring-brand-500 transition-all"
+                    >
+                      <option value="+91">🇮🇳 +91</option>
+                      <option value="+1">🇺🇸 +1</option>
+                      <option value="+44">🇬🇧 +44</option>
+                      <option value="+65">🇸🇬 +65</option>
+                    </select>
+                    <input
+                      required
+                      type="tel"
+                      inputMode="numeric"
+                      pattern="[0-9]{6,15}"
+                      placeholder="Mobile Number"
+                      className="flex-1 min-w-0 bg-brand-50/50 border border-brand-100 rounded-2xl px-6 py-4 outline-none focus:ring-2 focus:ring-brand-500 transition-all"
+                      value={phoneNumber}
+                      onChange={(e) => setPhoneNumber(e.target.value)}
+                    />
+                  </div>
+                </>
+              )}
+              {mode !== 'forgot' && (
+                <input 
+                  required
+                  type="password" 
+                  placeholder="Password" 
+                  className="w-full bg-brand-50/50 border border-brand-100 rounded-2xl px-6 py-4 outline-none focus:ring-2 focus:ring-brand-500 transition-all"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                />
+              )}
+            </div>
           {error && (
             <p className="text-center text-sm text-red-500 font-bold">{error}</p>
           )}
@@ -285,6 +326,7 @@ const Auth: React.FC<Props> = ({ onComplete, onBack, initialMode = 'signup', onM
               Back to login
             </button>
           )}
+          </div>
         </div>
       </div>
     </div>

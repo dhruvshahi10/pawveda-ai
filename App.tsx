@@ -3,6 +3,7 @@ import React, { useEffect, useState } from 'react';
 import { Navigate, Route, Routes, useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import LandingPage from './components/LandingPage';
 import Auth from './components/Auth';
+import FreeHealthCheckup from './components/FreeHealthCheckup';
 import Onboarding from './components/Onboarding';
 import OrgOnboarding from './components/OrgOnboarding';
 import Dashboard from './components/Dashboard';
@@ -39,6 +40,17 @@ interface MeResponse {
     orgName?: string | null;
   } | null;
 }
+
+const normalizeTier = (value?: string | null): UserState['tier'] => {
+  if (!value) return 'free';
+  const tier = value.toLowerCase();
+  if (tier === 'beta') return 'plus';
+  if (tier === 'starter') return 'plus';
+  if (tier === 'free' || tier === 'plus' || tier === 'pro' || tier === 'elite') return tier;
+  return tier;
+};
+
+const isPaidTier = (tier?: string | null) => tier === 'plus' || tier === 'pro' || tier === 'elite';
 
 const toPetData = (profile: any): PetData => ({
   id: profile?.id ?? undefined,
@@ -130,7 +142,20 @@ const AppRoutes: React.FC<{
   };
 
   const handleAuthComplete = async (role: 'pet-parent' | 'ngo') => {
-    const baseUser = { ...user, isLoggedIn: true, role };
+    const me = await fetchMe();
+    const tier = normalizeTier(me?.tier ?? user.tier ?? 'free');
+    const baseUser = { ...user, isLoggedIn: true, role, tier, isPremium: isPaidTier(tier) };
+    if (me?.petProfile && role === 'pet-parent') {
+      baseUser.pet = toPetData(me.petProfile);
+    }
+    if (me?.orgProfile && role === 'ngo') {
+      baseUser.orgProfile = {
+        name: me.orgProfile.contactName || '',
+        phone: me.orgProfile.phone || '',
+        city: me.orgProfile.city || '',
+        orgName: me.orgProfile.orgName || undefined
+      };
+    }
     const nextUser = await hydrateProfile(baseUser, role);
     setUser(nextUser);
     navigate(getPostAuthPath(nextUser), { replace: true });
@@ -216,10 +241,13 @@ const AppRoutes: React.FC<{
           coerceRole(data?.user?.role) ??
           user.role ??
           'pet-parent';
+        const tier = normalizeTier(me?.tier ?? user.tier ?? 'free');
         const baseUser: UserState = {
           ...user,
           isLoggedIn: true,
-          role: resolvedRole
+          role: resolvedRole,
+          tier,
+          isPremium: isPaidTier(tier)
         };
         if (me?.petProfile && resolvedRole === 'pet-parent') {
           baseUser.pet = toPetData(me.petProfile);
@@ -273,6 +301,7 @@ const AppRoutes: React.FC<{
       <Route path="/terms" element={<TermsPage />} />
       <Route path="/safety" element={<SafetyPage />} />
       <Route path="/support" element={<SupportPage />} />
+      <Route path="/checkup" element={<FreeHealthCheckup user={user} />} />
       <Route
         path="/"
         element={user.isLoggedIn ? <Navigate to={getPostAuthPath(user)} replace /> : <LandingPage onStart={handleStart} />}
@@ -333,7 +362,7 @@ const AppRoutes: React.FC<{
             <Dashboard
               user={user}
               setUser={handleUpdateUser}
-              onUpgrade={() => setUser(prev => ({ ...prev, isPremium: true }))}
+              onUpgrade={() => setUser(prev => ({ ...prev, isPremium: true, tier: 'pro' }))}
               onLogout={handleLogout}
             />
           )

@@ -2,6 +2,17 @@
 
 Note: A Spring Boot backend exists at `../pawveda-backend`. This analysis covers the frontend repo plus that backend.
 
+## 0) Revamp Summary (post-funding reset)
+- Product stance: minimal, outcome-driven pet care with a calm, low-text interface.
+- Core loop: Onboarding → Pet Profile → Daily/Weekly Check-in → Symptom Signal → Vet Brief.
+- Wedge remains triage + vet brief, but the daily check-in keeps retention and data quality.
+- Dashboard becomes a "Today" command center, not a feature gallery.
+
+## 0.1) North Star Metrics
+- Activation: % of new users completing onboarding + first check-in within 24 hours.
+- Trust: % of users with a complete profile (photo + meds + vaccines).
+- Value: % of sessions generating a triage outcome or vet brief.
+
 ## 1) Idea and Personas
 - Product idea: AI-assisted pet care tailored for Indian pet parents, with nutrition safety, climate alerts, activity coaching, and adoption support.
 - Primary personas:
@@ -91,8 +102,27 @@ Note: A Spring Boot backend exists at `../pawveda-backend`. This analysis covers
 - Credits and premium state are server-authoritative.
 - Waitlist and support submissions persist and are viewable by admins.
 
+## 8.1) MVP Scope Reset (must-have vs later)
+Must-have for the next release:
+- Clean onboarding and pet profile (basic + health + meds + vaccines + photo).
+- Daily/weekly check-in, symptom logging, and reminders.
+- Triage + vet brief with export.
+- Auth with email verification + password reset.
+- Media storage with thumbnails.
+
+Defer until retention is proven:
+- Studio, play plan, activity tip AI.
+- Community posting and advanced adoption workflows.
+- Complex analytics dashboards and premium tiers.
+
 ## 9) Decisions Required Before Build
 - Confirm Spring Boot + Supabase stays the chosen backend stack.
 - Decide whether to port `server/validate-links.js` logic into the backend or retire it.
 - Choose payment and notification providers (Razorpay, email/WhatsApp).
 - Define what NGO admin capabilities are in MVP scope.
+
+## 10) Next Steps (start here each session)
+- [ ] Pick a single vertical slice and complete end-to-end (UI + API + storage).
+- [ ] Track outcomes against the North Star metrics (activation, trust, value).
+- [ ] Remove or hide non-core dashboard modules until core loop is polished.
+- [ ] Re-run smoke test for auth + profile + check-in after each backend change.
